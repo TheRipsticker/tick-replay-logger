@@ -295,8 +295,19 @@ public class DeathTracePlugin extends Plugin
 			return;
 		}
 
-		// Damage received by the player
-		if (actor == localPlayer && hitsplat.isMine())
+		// Damage received by the player - check for player-targeted hitsplat types
+		// isMine() alone doesn't catch environmental damage (acid pools, poison, etc.)
+		boolean isPlayerDamageType = hitsplatType == HitsplatID.DAMAGE_ME ||
+			hitsplatType == HitsplatID.DAMAGE_ME_CYAN ||
+			hitsplatType == HitsplatID.DAMAGE_ME_ORANGE ||
+			hitsplatType == HitsplatID.DAMAGE_ME_YELLOW ||
+			hitsplatType == HitsplatID.DAMAGE_ME_WHITE ||
+			hitsplatType == HitsplatID.BLOCK_ME ||
+			hitsplatType == HitsplatID.POISON ||
+			hitsplatType == HitsplatID.VENOM ||
+			hitsplatType == HitsplatID.DISEASE;
+
+		if (actor == localPlayer && isPlayerDamageType)
 		{
 			if (!config.trackDamageReceived())
 			{
@@ -306,10 +317,24 @@ public class DeathTracePlugin extends Plugin
 			DamageEvent.DamageType damageType = determineDamageType(hitsplat);
 			String source = determineDamageSource();
 
+			// For poison/venom/disease, set appropriate source
+			if (hitsplatType == HitsplatID.POISON)
+			{
+				source = "Poison";
+			}
+			else if (hitsplatType == HitsplatID.VENOM)
+			{
+				source = "Venom";
+			}
+			else if (hitsplatType == HitsplatID.DISEASE)
+			{
+				source = "Disease";
+			}
+
 			DamageEvent damageEvent = DamageEvent.received(damage, damageType, source);
 			tickRecorder.addDamageEvent(damageEvent);
 
-			log.info("DAMAGE: Received {} from {}", damage, source);
+			log.info("DAMAGE: Received {} {} from {}", damage, damageType, source);
 		}
 		// Damage dealt by the player
 		else if (actor instanceof NPC && hitsplat.isMine())
