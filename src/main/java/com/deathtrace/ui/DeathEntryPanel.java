@@ -51,7 +51,7 @@ public class DeathEntryPanel extends JPanel
 	private ImageIcon iconHeart;
 	private ImageIcon iconAgility;
 
-	public DeathEntryPanel(DeathRecord death, int deathNumber, Consumer<DeathRecord> exportCallback, Consumer<DeathRecord> deleteCallback, SpriteManager spriteManager)
+	public DeathEntryPanel(DeathRecord death, int deathNumber, Consumer<DeathRecord> exportCallback, Consumer<DeathRecord> deleteCallback, Consumer<DeathRecord> playbackCallback, SpriteManager spriteManager)
 	{
 		this.death = death;
 		this.spriteManager = spriteManager;
@@ -63,7 +63,7 @@ public class DeathEntryPanel extends JPanel
 		setBorder(new EmptyBorder(8, 8, 8, 8));
 
 		// Header panel (always visible)
-		JPanel headerPanel = createHeaderPanel(deathNumber, exportCallback, deleteCallback);
+		JPanel headerPanel = createHeaderPanel(deathNumber, exportCallback, deleteCallback, playbackCallback);
 		add(headerPanel, BorderLayout.NORTH);
 
 		// Ticks panel (expandable) - use GridBagLayout to respect width
@@ -118,7 +118,7 @@ public class DeathEntryPanel extends JPanel
 		return new Dimension(Integer.MAX_VALUE, pref.height);
 	}
 
-	private JPanel createHeaderPanel(int deathNumber, Consumer<DeathRecord> exportCallback, Consumer<DeathRecord> deleteCallback)
+	private JPanel createHeaderPanel(int deathNumber, Consumer<DeathRecord> exportCallback, Consumer<DeathRecord> deleteCallback, Consumer<DeathRecord> playbackCallback)
 	{
 		JPanel header = new JPanel();
 		header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
@@ -143,6 +143,13 @@ public class DeathEntryPanel extends JPanel
 
 		JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
 		buttonPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+
+		JButton playbackBtn = new JButton("▶");
+		playbackBtn.setMargin(new Insets(1, 4, 1, 4));
+		playbackBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+		playbackBtn.setToolTipText("Playback this death");
+		playbackBtn.addActionListener(e -> playbackCallback.accept(death));
+		buttonPanel.add(playbackBtn);
 
 		JButton exportBtn = new JButton("Copy");
 		exportBtn.setMargin(new Insets(1, 4, 1, 4));

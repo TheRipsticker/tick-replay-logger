@@ -2,6 +2,7 @@ package com.deathtrace.ui;
 
 import com.deathtrace.model.DeathRecord;
 import com.deathtrace.model.TickData;
+import com.deathtrace.ui.playback.PlaybackPanel;
 import com.deathtrace.util.DeathStorage;
 import com.deathtrace.util.TickRecorder;
 import com.google.gson.Gson;
@@ -25,6 +26,7 @@ public class DeathTracePanel extends PluginPanel
 {
 	private static final String DEATHS_VIEW = "deaths";
 	private static final String LIVE_VIEW = "live";
+	private static final String PLAYBACK_VIEW = "playback";
 
 	private final DeathStorage deathStorage;
 	private final SpriteManager spriteManager;
@@ -35,6 +37,7 @@ public class DeathTracePanel extends PluginPanel
 	private final JPanel contentPanel;
 	private final JButton toggleViewBtn;
 	private String currentView = DEATHS_VIEW;
+	private String previousView = DEATHS_VIEW; // For returning from playback
 
 	// Deaths view components
 	private final JPanel deathListContainer;
@@ -45,6 +48,9 @@ public class DeathTracePanel extends PluginPanel
 	private final JLabel liveStatusLabel;
 	private final JButton liveStartStopBtn;
 	private boolean liveRecording = true; // Controls display updates
+
+	// Playback view components
+	private final PlaybackPanel playbackPanel;
 
 	// Gson for JSON export
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
@@ -207,9 +213,13 @@ public class DeathTracePanel extends PluginPanel
 
 		liveViewPanel.add(liveScrollPane, BorderLayout.CENTER);
 
+		// === Playback View ===
+		playbackPanel = new PlaybackPanel(this::returnFromPlayback);
+
 		// Add views to card layout
 		contentPanel.add(deathsViewPanel, DEATHS_VIEW);
 		contentPanel.add(liveViewPanel, LIVE_VIEW);
+		contentPanel.add(playbackPanel, PLAYBACK_VIEW);
 
 		add(contentPanel, BorderLayout.CENTER);
 
@@ -238,13 +248,42 @@ public class DeathTracePanel extends PluginPanel
 			cardLayout.show(contentPanel, LIVE_VIEW);
 			refreshLiveTimeline();
 		}
-		else
+		else if (currentView.equals(LIVE_VIEW))
 		{
 			currentView = DEATHS_VIEW;
 			toggleViewBtn.setText("Live View");
 			toggleViewBtn.setToolTipText("Switch to live timeline view");
 			cardLayout.show(contentPanel, DEATHS_VIEW);
 		}
+		// If in playback view, toggle goes to deaths view
+		else if (currentView.equals(PLAYBACK_VIEW))
+		{
+			returnFromPlayback();
+		}
+	}
+
+	/**
+	 * Show the playback view for a death record.
+	 */
+	private void showPlayback(DeathRecord death)
+	{
+		previousView = currentView;
+		currentView = PLAYBACK_VIEW;
+		toggleViewBtn.setText("Deaths");
+		toggleViewBtn.setToolTipText("Return to deaths list");
+		playbackPanel.loadDeath(death);
+		cardLayout.show(contentPanel, PLAYBACK_VIEW);
+	}
+
+	/**
+	 * Return from playback view to previous view.
+	 */
+	private void returnFromPlayback()
+	{
+		currentView = DEATHS_VIEW; // Always return to deaths view
+		toggleViewBtn.setText("Live View");
+		toggleViewBtn.setToolTipText("Switch to live timeline view");
+		cardLayout.show(contentPanel, DEATHS_VIEW);
 	}
 
 	/**
@@ -314,7 +353,7 @@ public class DeathTracePanel extends PluginPanel
 			for (int i = 0; i < deaths.size(); i++)
 			{
 				DeathRecord death = deaths.get(i);
-				DeathEntryPanel entryPanel = new DeathEntryPanel(death, i + 1, this::exportDeath, this::deleteDeath, spriteManager);
+				DeathEntryPanel entryPanel = new DeathEntryPanel(death, i + 1, this::exportDeath, this::deleteDeath, this::showPlayback, spriteManager);
 				deathListContainer.add(entryPanel, gbc);
 				gbc.gridy++;
 			}
