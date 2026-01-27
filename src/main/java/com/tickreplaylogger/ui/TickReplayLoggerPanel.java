@@ -6,7 +6,6 @@ import com.tickreplaylogger.ui.playback.PlaybackPanel;
 import com.tickreplaylogger.util.RecordingStorage;
 import com.tickreplaylogger.util.TickRecorder;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
@@ -65,14 +64,15 @@ public class TickReplayLoggerPanel extends PluginPanel
 	// Playback view components
 	private final PlaybackPanel playbackPanel;
 
-	// Gson for JSON export
-	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+	// Gson for JSON export (injected from client)
+	private final Gson gson;
 
-	public TickReplayLoggerPanel(RecordingStorage recordingStorage, SpriteManager spriteManager)
+	public TickReplayLoggerPanel(RecordingStorage recordingStorage, SpriteManager spriteManager, Gson gson)
 	{
 		super(false);
 		this.recordingStorage = recordingStorage;
 		this.spriteManager = spriteManager;
+		this.gson = gson;
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);

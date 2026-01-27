@@ -37,6 +37,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.util.ImageUtil;
+import com.google.gson.Gson;
 
 import javax.inject.Inject;
 import java.awt.image.BufferedImage;
@@ -65,6 +66,9 @@ public class TickReplayLoggerPlugin extends Plugin
 
 	@Inject
 	private SpriteManager spriteManager;
+
+	@Inject
+	private Gson gson;
 
 	private TickRecorder tickRecorder;
 	private RecordingStorage recordingStorage;
@@ -130,10 +134,10 @@ public class TickReplayLoggerPlugin extends Plugin
 	protected void startUp() throws Exception
 	{
 		tickRecorder = new TickRecorder(config.ticksToRecord());
-		recordingStorage = new RecordingStorage(config.maxDeathsToStore());
+		recordingStorage = new RecordingStorage(config.maxDeathsToStore(), gson);
 
 		// Create panel
-		panel = new TickReplayLoggerPanel(recordingStorage, spriteManager);
+		panel = new TickReplayLoggerPanel(recordingStorage, spriteManager, gson);
 		panel.setTickRecorder(tickRecorder);
 		panel.setLiveViewEnabled(config.enableLiveView());
 

@@ -2,7 +2,6 @@ package com.tickreplaylogger.util;
 
 import com.tickreplaylogger.model.TickRecording;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
@@ -35,10 +34,10 @@ public class RecordingStorage
 	private List<TickRecording> deaths;
 	private List<TickRecording> savedRecordings;
 
-	public RecordingStorage(int maxDeaths)
+	public RecordingStorage(int maxDeaths, Gson gson)
 	{
 		this.maxDeaths = maxDeaths;
-		this.gson = new GsonBuilder()
+		this.gson = gson.newBuilder()
 			.setPrettyPrinting()
 			.create();
 
