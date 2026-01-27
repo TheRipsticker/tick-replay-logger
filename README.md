@@ -1,6 +1,6 @@
 # Tick Replay Logger
 
-A RuneLite plugin that records tick-by-tick combat data for post-death analysis. Learn from your mistakes by reviewing exactly what happened in the ticks leading up to your death.
+Tick Replay Logger is a RuneLite Plugin Hub submission that records the last few dozen ticks leading up to a death (or a manual snapshot) so you can replay every action after the fact without any predictive overlays.
 
 ## Features
 
@@ -30,15 +30,16 @@ A RuneLite plugin that records tick-by-tick combat data for post-death analysis.
 - **Two-Section View** - Organized into "Saved Recordings" and "Recent Deaths"
 - **Save Deaths** - Star button to save important deaths (won't auto-delete)
 - **Save Live Snapshots** - Capture current tick buffer as a named recording
+- **Rename Recordings** - Inline rename button keeps long-term logs organized
 - **No Limit** - Saved recordings have no storage limit
 - **Persistent Storage** - Saved recordings stored separately from deaths
 
 ### Timeline Views
 - **Recordings View** - Browse deaths and saved recordings with expandable tick-by-tick timelines
-- **Live View** - Watch the current tick buffer in real-time
+- **Live View** - Optional running journal of the most recent tick (no predictions)
   - Pause/resume to freeze the display
-  - Export current buffer as JSON
-  - Save current buffer as a recording
+  - Export the paused buffer as JSON
+  - Save the paused buffer as a recording
 - **Icons** - OSRS skill icons for actions, damage, prayers, and movement
 
 ### Export
@@ -51,6 +52,7 @@ A RuneLite plugin that records tick-by-tick combat data for post-death analysis.
 |---------|---------|-------------|
 | Ticks to Record | 100 | Number of ticks to keep in memory before death |
 | Max Deaths to Store | 3 | Maximum number of death records to persist (saved recordings are unlimited) |
+| Enable Live View | Enabled | Allow the optional live tick journal (disable for strict post-death review) |
 
 ## Usage
 
@@ -59,9 +61,9 @@ A RuneLite plugin that records tick-by-tick combat data for post-death analysis.
 3. When you die, the death is automatically saved
 4. Click **Replay** to open the playback dashboard and step through tick-by-tick
 5. Click **Timeline** to expand the inline tick timeline
-6. Use **Live View** button to see real-time tick data
-7. Click the **★** button to save a death permanently
-8. In Live View, click **★ Save** to capture a snapshot
+6. Use **Live View** to monitor the most recent tick, then pause before exporting or saving
+7. Click the [Save] button next to a death entry to keep it permanently
+8. While Live View is paused, click **Save Snapshot** to archive exactly what you were viewing
 
 ### Playback Controls
 
@@ -98,12 +100,16 @@ Data is stored in the RuneLite directory:
 - `~/.runelite/tick-replay-logger/deaths.json` - Recent deaths (auto-pruned)
 - `~/.runelite/tick-replay-logger/saved.json` - Saved recordings (permanent)
 
-## Building
+## Installation (Plugin Hub)
 
-```bash
-./gradlew build
-```
+1. Launch RuneLite 1.10.34 or newer.
+2. Open **Settings → Plugin Hub** and search for “Tick Replay Logger.”
+3. Click **Install** and enable the plugin.
 
-## Installation
+_Manual build:_ Run `./gradlew build` and copy the generated JAR into your external-plugins directory.
 
-Copy the built JAR to your RuneLite plugins folder, or load as an external plugin during development.
+## Compliance Notes
+
+- Informational only: Live View and replays show historical tick data and never provide predictions, alerts, or instructions.
+- No automation: the plugin only listens to RuneLite events and never issues in-game inputs.
+- Local storage: recordings remain on disk at `~/.runelite/tick-replay-logger/` and are not uploaded anywhere.

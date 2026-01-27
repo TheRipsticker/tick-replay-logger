@@ -79,7 +79,7 @@ public class RecordingStorage
 			if (loaded != null)
 			{
 				deaths = loaded;
-				log.info("Loaded {} death records from file", deaths.size());
+				log.debug("Loaded {} death records from file", deaths.size());
 			}
 			else
 			{
@@ -118,7 +118,7 @@ public class RecordingStorage
 			if (loaded != null)
 			{
 				savedRecordings = loaded;
-				log.info("Loaded {} saved recordings from file", savedRecordings.size());
+				log.debug("Loaded {} saved recordings from file", savedRecordings.size());
 			}
 			else
 			{
@@ -187,7 +187,7 @@ public class RecordingStorage
 		// Save to file
 		saveDeaths();
 
-		log.info("Death recorded: killed by {} ({} total deaths stored)",
+		log.debug("Death recorded: killed by {} ({} total deaths stored)",
 			death.getKillerName(), deaths.size());
 	}
 
@@ -231,11 +231,11 @@ public class RecordingStorage
 		if (pruned)
 		{
 			saveDeaths();
-			log.info("Death storage max changed to {}, pruned to {} deaths", maxDeaths, deaths.size());
+			log.debug("Death storage max changed to {}, pruned to {} deaths", maxDeaths, deaths.size());
 		}
 		else
 		{
-			log.info("Death storage max changed to {}", maxDeaths);
+			log.debug("Death storage max changed to {}", maxDeaths);
 		}
 	}
 
@@ -246,7 +246,7 @@ public class RecordingStorage
 	{
 		deaths.clear();
 		saveDeaths();
-		log.info("All death records cleared");
+		log.debug("All death records cleared");
 	}
 
 	/**
@@ -257,7 +257,7 @@ public class RecordingStorage
 		if (deaths.remove(death))
 		{
 			saveDeaths();
-			log.info("Death record deleted: killed by {}", death.getKillerName());
+			log.debug("Death record deleted: killed by {}", death.getKillerName());
 		}
 	}
 
@@ -270,7 +270,7 @@ public class RecordingStorage
 		{
 			TickRecording removed = deaths.remove(index);
 			saveDeaths();
-			log.info("Death record deleted: killed by {}", removed.getKillerName());
+			log.debug("Death record deleted: killed by {}", removed.getKillerName());
 		}
 	}
 
@@ -330,7 +330,7 @@ public class RecordingStorage
 			savedRecordings.add(0, death);
 			saveDeaths();
 			saveSavedRecordings();
-			log.info("Death saved to permanent recordings: {}", death.getKillerName());
+			log.debug("Death saved to permanent recordings: {}", death.getKillerName());
 		}
 	}
 
@@ -342,7 +342,28 @@ public class RecordingStorage
 	{
 		savedRecordings.add(0, recording);
 		saveSavedRecordings();
-		log.info("Recording saved: {}", recording.getKillerName());
+		log.debug("Recording saved: {}", recording.getKillerName());
+	}
+
+	/**
+	 * Rename a recording (applies to both recent deaths and saved recordings).
+	 */
+	public void renameRecording(TickRecording recording, String newName)
+	{
+		if (recording == null || newName == null)
+		{
+			return;
+		}
+		String trimmed = newName.trim();
+		if (trimmed.isEmpty())
+		{
+			return;
+		}
+
+		recording.setKillerName(trimmed);
+		saveDeaths();
+		saveSavedRecordings();
+		log.debug("Recording renamed to {}", trimmed);
 	}
 
 	/**
@@ -353,7 +374,7 @@ public class RecordingStorage
 		if (savedRecordings.remove(recording))
 		{
 			saveSavedRecordings();
-			log.info("Saved recording deleted: {}", recording.getKillerName());
+			log.debug("Saved recording deleted: {}", recording.getKillerName());
 		}
 	}
 
@@ -364,7 +385,7 @@ public class RecordingStorage
 	{
 		savedRecordings.clear();
 		saveSavedRecordings();
-		log.info("All saved recordings cleared");
+		log.debug("All saved recordings cleared");
 	}
 
 	/**

@@ -61,7 +61,7 @@ public class TickRecorder
 			count++;
 		}
 
-		log.info("TickRecorder resized to capacity: {} ({} ticks preserved)", newCapacity, count);
+		log.debug("TickRecorder resized to capacity: {} ({} ticks preserved)", newCapacity, count);
 	}
 
 	/**

@@ -15,7 +15,7 @@ public class TickRecording
 	private final long timestamp;
 
 	// Context label (e.g., killer name for deaths, or custom label for saved recordings)
-	private final String killerName;
+	private String killerName;
 
 	// Where the recording was made (region/location name if available)
 	private final String location;

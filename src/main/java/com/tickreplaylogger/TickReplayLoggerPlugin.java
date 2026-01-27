@@ -122,6 +122,10 @@ public class TickReplayLoggerPlugin extends Plugin
 	// Track special attack energy for detecting spec usage
 	private int lastSpecialAttackPercent = 100;
 
+	// Track pending self-damage from potions (divine, overload, etc.)
+	// This prevents double-counting when the hitsplat fires on the next tick
+	private int pendingSelfDamage = 0;
+
 	@Override
 	protected void startUp() throws Exception
 	{
@@ -131,6 +135,7 @@ public class TickReplayLoggerPlugin extends Plugin
 		// Create panel
 		panel = new TickReplayLoggerPanel(recordingStorage, spriteManager);
 		panel.setTickRecorder(tickRecorder);
+		panel.setLiveViewEnabled(config.enableLiveView());
 
 		// Create navigation button with panel icon
 		final BufferedImage icon = ImageUtil.loadImageResource(TickReplayLoggerPlugin.class, "panel_icon.png");
@@ -143,7 +148,7 @@ public class TickReplayLoggerPlugin extends Plugin
 
 		clientToolbar.addNavigation(navButton);
 
-		log.info("Tick Replay Logger plugin started! Recording last {} ticks, storing {} deaths.",
+		log.debug("Tick Replay Logger plugin started! Recording last {} ticks, storing {} deaths.",
 			config.ticksToRecord(), config.maxDeathsToStore());
 	}
 
@@ -156,7 +161,7 @@ public class TickReplayLoggerPlugin extends Plugin
 		{
 			tickRecorder.clear();
 		}
-		log.info("Tick Replay Logger plugin stopped!");
+		log.debug("Tick Replay Logger plugin stopped!");
 	}
 
 	@Subscribe
@@ -168,7 +173,7 @@ public class TickReplayLoggerPlugin extends Plugin
 			if (tickRecorder != null)
 			{
 				tickRecorder.resetTickCounter();
-				log.info("Player logged in - tick recorder reset");
+				log.debug("Player logged in - tick recorder reset");
 			}
 			lastAttackerName = "Unknown";
 			lastPlayerPosition = null;
@@ -176,6 +181,7 @@ public class TickReplayLoggerPlugin extends Plugin
 			lastTickPrayerPoints = 0;
 			manuallyDeactivatedPrayers.clear();
 			lastSpecialAttackPercent = 100;
+			pendingSelfDamage = 0;
 		}
 		else if (event.getGameState() == GameState.LOGIN_SCREEN)
 		{
@@ -190,6 +196,7 @@ public class TickReplayLoggerPlugin extends Plugin
 			lastTickPrayerPoints = 0;
 			manuallyDeactivatedPrayers.clear();
 			lastSpecialAttackPercent = 100;
+			pendingSelfDamage = 0;
 		}
 	}
 
@@ -222,6 +229,10 @@ public class TickReplayLoggerPlugin extends Plugin
 				}
 			}
 		}
+		else if (event.getKey().equals("enableLiveView") && panel != null)
+		{
+			panel.setLiveViewEnabled(config.enableLiveView());
+		}
 	}
 
 	@Subscribe
@@ -236,7 +247,7 @@ public class TickReplayLoggerPlugin extends Plugin
 		}
 
 		// Player died! Record the death
-		log.info("PLAYER DIED! Recording death trace...");
+		log.debug("PLAYER DIED! Recording death trace...");
 
 		// Get the tick history
 		List<TickData> tickHistory = tickRecorder.getTickHistory();
@@ -277,7 +288,7 @@ public class TickReplayLoggerPlugin extends Plugin
 			panel.refresh();
 		}
 
-		log.info("Death recorded: Killed by {} at {}. {} ticks captured, {} total damage received.",
+		log.debug("Death recorded: Killed by {} at {}. {} ticks captured, {} total damage received.",
 			killer, locationStr, tickHistory.size(), totalDamage);
 	}
 
@@ -351,6 +362,15 @@ public class TickReplayLoggerPlugin extends Plugin
 				return;
 			}
 
+			// Check if this is a pending self-damage hitsplat (from divine/overload potions)
+			// We already recorded this damage on the consume tick, so skip the duplicate
+			if (pendingSelfDamage > 0 && damage == pendingSelfDamage)
+			{
+				log.debug("SKIP DUPLICATE: Self-damage {} already recorded on consume tick", damage);
+				pendingSelfDamage = 0;
+				return;
+			}
+
 			DamageEvent.DamageType damageType = determineDamageType(hitsplat);
 			String source = determineDamageSource();
 
@@ -371,7 +391,7 @@ public class TickReplayLoggerPlugin extends Plugin
 			DamageEvent damageEvent = DamageEvent.received(damage, damageType, source);
 			tickRecorder.addDamageEvent(damageEvent);
 
-			log.info("DAMAGE: Received {} {} from {}", damage, damageType, source);
+			log.debug("DAMAGE: Received {} {} from {}", damage, damageType, source);
 		}
 		// Damage dealt by the player
 		else if (actor instanceof NPC && hitsplat.isMine())
@@ -392,7 +412,7 @@ public class TickReplayLoggerPlugin extends Plugin
 			DamageEvent damageEvent = DamageEvent.dealt(damage, damageType, targetName);
 			tickRecorder.addDamageEvent(damageEvent);
 
-			log.info("DAMAGE: Dealt {} to {}", damage, targetName);
+			log.debug("DAMAGE: Dealt {} to {}", damage, targetName);
 		}
 	}
 
@@ -544,7 +564,7 @@ public class TickReplayLoggerPlugin extends Plugin
 
 					PlayerAction drainedAction = PlayerAction.prayerDrained(prayer, reason);
 					tickRecorder.addPlayerAction(drainedAction);
-					log.info("PRAYER DRAINED: {} ({})", prayer, reason);
+					log.debug("PRAYER DRAINED: {} ({})", prayer, reason);
 				}
 			}
 		}
@@ -571,7 +591,7 @@ public class TickReplayLoggerPlugin extends Plugin
 		// Log every 10 ticks to avoid spam
 		if (tickRecorder.getCurrentTickNumber() % 10 == 0)
 		{
-			log.info("Tick {}: HP {}/{}, Prayer {}/{}, Active prayers: {}",
+			log.debug("Tick {}: HP {}/{}, Prayer {}/{}, Active prayers: {}",
 				tickRecorder.getCurrentTickNumber(),
 				currentHp, maxHp,
 				currentPrayer, maxPrayer,
@@ -599,19 +619,34 @@ public class TickReplayLoggerPlugin extends Plugin
 		if (option.equals("Eat") && config.trackFood())
 		{
 			action = PlayerAction.ate(cleanTarget);
-			log.info("ACTION: Ate {}", cleanTarget);
+			log.debug("ACTION: Ate {}", cleanTarget);
 		}
 		// Drinking potions
 		else if (option.equals("Drink") && config.trackFood())
 		{
 			action = PlayerAction.drank(cleanTarget);
-			log.info("ACTION: Drank {}", cleanTarget);
+			log.debug("ACTION: Drank {}", cleanTarget);
+
+			// Handle self-damage potions - damage is immediate but hitsplat fires next tick
+			// We capture it here so the damage appears on the same tick as the consume action
+			if (config.trackDamageReceived())
+			{
+				int selfDamage = getSelfDamagePotionAmount(cleanTarget);
+				if (selfDamage > 0)
+				{
+					DamageEvent selfDmgEvent = DamageEvent.received(selfDamage, DamageEvent.DamageType.TYPELESS, cleanTarget);
+					tickRecorder.addDamageEvent(selfDmgEvent);
+					// Mark this damage as pending so we skip the hitsplat when it fires
+					pendingSelfDamage = selfDamage;
+					log.debug("SELF-DAMAGE: {} from {}", selfDamage, cleanTarget);
+				}
+			}
 		}
 		// Activating prayers
 		else if (option.equals("Activate") && config.trackPrayers())
 		{
 			action = PlayerAction.prayerOn(cleanTarget);
-			log.info("ACTION: Activated {}", cleanTarget);
+			log.debug("ACTION: Activated {}", cleanTarget);
 		}
 		// Deactivating prayers
 		else if (option.equals("Deactivate"))
@@ -620,20 +655,20 @@ public class TickReplayLoggerPlugin extends Plugin
 			if (config.trackPrayers())
 			{
 				action = PlayerAction.prayerOff(cleanTarget);
-				log.info("ACTION: Deactivated {}", cleanTarget);
+				log.debug("ACTION: Deactivated {}", cleanTarget);
 			}
 		}
 		// Equipping gear
 		else if ((option.equals("Wear") || option.equals("Wield") || option.equals("Equip")) && config.trackGear())
 		{
 			action = PlayerAction.equipped(cleanTarget);
-			log.info("ACTION: Equipped {}", cleanTarget);
+			log.debug("ACTION: Equipped {}", cleanTarget);
 		}
 		// Unequipping gear
 		else if (option.equals("Remove") && config.trackGear())
 		{
 			action = PlayerAction.unequipped(cleanTarget);
-			log.info("ACTION: Unequipped {}", cleanTarget);
+			log.debug("ACTION: Unequipped {}", cleanTarget);
 		}
 		// Attacking
 		else if (option.equals("Attack") && config.trackAttacks())
@@ -641,7 +676,7 @@ public class TickReplayLoggerPlugin extends Plugin
 			// Get current weapon name
 			String weapon = getCurrentWeaponName();
 			action = PlayerAction.attacked(cleanTarget, weapon);
-			log.info("ACTION: Attacked {} with {}", cleanTarget, weapon);
+			log.debug("ACTION: Attacked {} with {}", cleanTarget, weapon);
 		}
 
 		// Add action to current tick if we captured something
@@ -669,7 +704,7 @@ public class TickReplayLoggerPlugin extends Plugin
 			String weaponName = getCurrentWeaponName();
 			PlayerAction specAction = PlayerAction.specialAttack(weaponName);
 			tickRecorder.addPlayerAction(specAction);
-			log.info("ACTION: Special attack with {}", weaponName);
+			log.debug("ACTION: Special attack with {}", weaponName);
 		}
 
 		lastSpecialAttackPercent = currentSpecPercent;
@@ -848,6 +883,54 @@ public class TickReplayLoggerPlugin extends Plugin
 			}
 		}
 		return result.toString();
+	}
+
+	/**
+	 * Get the self-damage amount for potions that hurt the player when consumed.
+	 * Returns 0 if the potion doesn't cause self-damage.
+	 *
+	 * @param potionName The name of the potion (cleaned of color tags)
+	 * @return The damage amount, or 0 if no self-damage
+	 */
+	private int getSelfDamagePotionAmount(String potionName)
+	{
+		String lower = potionName.toLowerCase();
+
+		// Divine potions - all deal 10 damage on consumption
+		// Includes: Divine super combat, Divine bastion, Divine battlemage,
+		// Divine magic, Divine ranging, Divine super attack/defence/strength
+		if (lower.startsWith("divine"))
+		{
+			return 10;
+		}
+
+		// Overload variants - deal damage based on current HP (10% per hit, 5 hits)
+		// First hit is immediate, we capture just that first hit here
+		// The subsequent hits will be captured via normal hitsplat tracking
+		if (lower.contains("overload"))
+		{
+			// Standard overload, Overload (+), etc.
+			// First hit is 10% of current HP, minimum 1
+			int currentHp = client.getBoostedSkillLevel(Skill.HITPOINTS);
+			return Math.max(1, currentHp / 10);
+		}
+
+		// Smelling salts (ToA) - similar to overload, deals damage on use
+		if (lower.contains("smelling salts"))
+		{
+			int currentHp = client.getBoostedSkillLevel(Skill.HITPOINTS);
+			return Math.max(1, currentHp / 10);
+		}
+
+		// Liquid adrenaline - drains 5 prayer and 10% of current HP
+		if (lower.contains("liquid adrenaline"))
+		{
+			int currentHp = client.getBoostedSkillLevel(Skill.HITPOINTS);
+			return Math.max(1, currentHp / 10);
+		}
+
+		// No self-damage
+		return 0;
 	}
 
 	/**

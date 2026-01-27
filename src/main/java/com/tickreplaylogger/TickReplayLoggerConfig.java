@@ -47,6 +47,18 @@ public interface TickReplayLoggerConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "enableLiveView",
+		name = "Enable Live View",
+		description = "Allow the optional live tick journal panel (disable for strict post-death review)",
+		position = 2,
+		section = generalSection
+	)
+	default boolean enableLiveView()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "trackMovement",
 		name = "Track Movement",
 		description = "Record player movement (tiles traveled)",

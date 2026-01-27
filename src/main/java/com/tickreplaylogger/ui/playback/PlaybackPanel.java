@@ -14,6 +14,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -36,7 +37,10 @@ public class PlaybackPanel extends JPanel
 	private static final Color ROW_SIGNIFICANT_HEAL = new Color(30, 60, 30);    // Green - healing
 	private static final Color ROW_SIGNIFICANT_PRAYER = new Color(50, 30, 70);  // Purple - prayer actions
 	private static final Color ROW_DEATH = new Color(100, 0, 0);
-	private static final Color ROW_SELECTED = new Color(60, 60, 100);
+	private static final Color ROW_SELECTED = new Color(70, 70, 80);
+	private static final Color TICK_BADGE_DEFAULT = new Color(45, 45, 50);
+	private static final Color TICK_BADGE_ALT = new Color(38, 38, 42);
+	private static final int TICK_BADGE_WIDTH = 46;
 
 	private static final int ICON_SIZE = 18;
 
@@ -820,12 +824,32 @@ public class PlaybackPanel extends JPanel
 			panel.setCurrentTick(isCurrent);
 
 			// Add label for text
-			JLabel label = new JLabel(summary);
+			JLabel label = new JLabel(summary.isEmpty() ? " " : summary);
 			label.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
 			label.setForeground(isDeathTick ? DAMAGE_RECEIVED_COLOR : Color.WHITE);
 			label.setBorder(new EmptyBorder(5, 6, 5, 6));
 
 			panel.setLayout(new BorderLayout());
+			JLabel tickBadge = new JLabel(String.valueOf(tick.getTickNumber()), SwingConstants.CENTER);
+			tickBadge.setOpaque(true);
+			Color badgeColor;
+			if (isDeathTick)
+			{
+				badgeColor = ROW_SIGNIFICANT_DAMAGE;
+			}
+			else if (isCurrent)
+			{
+				badgeColor = ROW_SELECTED;
+			}
+			else
+			{
+				badgeColor = (index % 2 == 0) ? TICK_BADGE_DEFAULT : TICK_BADGE_ALT;
+			}
+			tickBadge.setBackground(badgeColor);
+			tickBadge.setForeground(Color.WHITE);
+			tickBadge.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+			tickBadge.setPreferredSize(new Dimension(TICK_BADGE_WIDTH, 28));
+			panel.add(tickBadge, BorderLayout.WEST);
 			panel.add(label, BorderLayout.CENTER);
 
 			return panel;
@@ -833,9 +857,7 @@ public class PlaybackPanel extends JPanel
 
 		private String buildTickSummary(TickData tick)
 		{
-			StringBuilder sb = new StringBuilder();
-			sb.append(tick.getTickNumber()).append("  ");
-			int baseLength = sb.length(); // Track length after tick number
+			List<String> fragments = new ArrayList<>();
 
 			// Summarize damage events
 			int dmgReceived = 0;
@@ -853,12 +875,11 @@ public class PlaybackPanel extends JPanel
 			}
 			if (dmgReceived > 0)
 			{
-				sb.append("-").append(dmgReceived);
+				fragments.add("-" + dmgReceived + " dmg");
 			}
 			if (dmgDealt > 0)
 			{
-				if (dmgReceived > 0) sb.append(" ");
-				sb.append("+").append(dmgDealt);
+				fragments.add("+" + dmgDealt + " dmg");
 			}
 
 			// Player actions (food/potions only)
@@ -867,25 +888,25 @@ public class PlaybackPanel extends JPanel
 				if (action.getType() == PlayerAction.ActionType.EAT_FOOD ||
 					action.getType() == PlayerAction.ActionType.DRINK_POTION)
 				{
-					if (sb.length() > baseLength) sb.append(", ");
-					sb.append(action.getItemName());
+					fragments.add(action.getItemName());
 				}
 			}
 
 			MovementData movement = tick.getMovement();
 			if (movement != null && movement.hasMovement())
 			{
-				if (sb.length() > baseLength) sb.append(", ");
-				sb.append("Moved ").append(movement.getTilesCompleted()).append("t");
+				int tiles = movement.getTilesCompleted();
+				String tileLabel = tiles == 1 ? "tile" : "tiles";
+				fragments.add("Moved " + tiles + " " + tileLabel);
 			}
 
 			// Show dash if no events
-			if (sb.length() == baseLength)
+			if (fragments.isEmpty())
 			{
-				sb.append("-");
+				return "";
 			}
 
-			return sb.toString();
+			return String.join(", ", fragments);
 		}
 
 		private boolean hasDamageReceived(TickData tick)

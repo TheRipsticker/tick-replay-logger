@@ -15,6 +15,8 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -29,6 +31,9 @@ public class TickReplayLoggerPanel extends PluginPanel
 	private static final String RECORDINGS_VIEW = "recordings";
 	private static final String LIVE_VIEW = "live";
 	private static final String PLAYBACK_VIEW = "playback";
+
+	private static final String LIVE_SAVE_DEFAULT_TEXT = "Save Snapshot";
+	private static final int LIVE_SAVE_FEEDBACK_DURATION_MS = 1500;
 
 	private final RecordingStorage recordingStorage;
 	private final SpriteManager spriteManager;
@@ -51,7 +56,11 @@ public class TickReplayLoggerPanel extends PluginPanel
 	private final JButton liveStartStopBtn;
 	private final JButton liveSaveBtn;
 	private boolean liveRecording = true; // Controls display updates
+	private boolean liveViewEnabled = true;
 	private List<TickData> pausedSnapshot;
+	private Timer liveSaveFeedbackTimer;
+	private boolean liveSaveFeedbackActive;
+	private static final DateTimeFormatter SNAPSHOT_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
 	// Playback view components
 	private final PlaybackPanel playbackPanel;
@@ -136,28 +145,32 @@ public class TickReplayLoggerPanel extends PluginPanel
 		liveHeader.setBorder(new EmptyBorder(6, 10, 6, 10));
 
 		// Row 1: Buttons
-		JPanel liveButtonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+		JPanel liveButtonsPanel = new JPanel();
+		liveButtonsPanel.setLayout(new BoxLayout(liveButtonsPanel, BoxLayout.X_AXIS));
+		liveButtonsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
 		liveButtonsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		liveButtonsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
+		liveButtonsPanel.add(Box.createHorizontalGlue());
 		liveStartStopBtn = new JButton("Pause");
 		liveStartStopBtn.setMargin(new Insets(2, 6, 2, 6));
 		liveStartStopBtn.setToolTipText("Pause/resume live updates");
 		liveStartStopBtn.addActionListener(e -> toggleLiveUpdates());
 		liveButtonsPanel.add(liveStartStopBtn);
+		liveButtonsPanel.add(Box.createHorizontalStrut(5));
 
 		JButton liveExportBtn = new JButton("Export");
 		liveExportBtn.setMargin(new Insets(2, 6, 2, 6));
 		liveExportBtn.setToolTipText("Copy current tick buffer to clipboard");
 		liveExportBtn.addActionListener(e -> exportLiveBuffer());
 		liveButtonsPanel.add(liveExportBtn);
+		liveButtonsPanel.add(Box.createHorizontalStrut(5));
 
-		liveSaveBtn = new JButton("★ Save");
+		liveSaveBtn = new JButton(LIVE_SAVE_DEFAULT_TEXT);
 		liveSaveBtn.setMargin(new Insets(2, 6, 2, 6));
 		liveSaveBtn.setToolTipText("Save current tick buffer as a recording");
 		liveSaveBtn.setBackground(new Color(50, 80, 50));
 		liveSaveBtn.setForeground(new Color(150, 200, 150));
-		liveSaveBtn.setEnabled(false);
 		liveSaveBtn.addActionListener(e -> saveLiveBuffer());
 		liveButtonsPanel.add(liveSaveBtn);
 
@@ -207,6 +220,7 @@ public class TickReplayLoggerPanel extends PluginPanel
 
 		add(contentPanel, BorderLayout.CENTER);
 
+		updateLiveSaveButtonState();
 		// Initial refresh
 		refreshRecordingsList();
 	}
@@ -217,6 +231,7 @@ public class TickReplayLoggerPanel extends PluginPanel
 	public void setTickRecorder(TickRecorder tickRecorder)
 	{
 		this.tickRecorder = tickRecorder;
+		updateLiveSaveButtonState();
 	}
 
 	/**
@@ -224,6 +239,11 @@ public class TickReplayLoggerPanel extends PluginPanel
 	 */
 	private void toggleView()
 	{
+		if (!liveViewEnabled)
+		{
+			return;
+		}
+
 		if (currentView.equals(RECORDINGS_VIEW))
 		{
 			currentView = LIVE_VIEW;
@@ -281,7 +301,6 @@ public class TickReplayLoggerPanel extends PluginPanel
 			liveStartStopBtn.setText("Pause");
 			liveStatusLabel.setText("Recording: Active");
 			liveStatusLabel.setForeground(new Color(80, 200, 80));
-			liveSaveBtn.setEnabled(false);
 			pausedSnapshot = null;
 			refreshLiveTimeline();
 		}
@@ -298,8 +317,9 @@ public class TickReplayLoggerPanel extends PluginPanel
 			{
 				pausedSnapshot = Collections.emptyList();
 			}
-			liveSaveBtn.setEnabled(!pausedSnapshot.isEmpty());
 		}
+
+		updateLiveSaveButtonState();
 	}
 
 	/**
@@ -315,7 +335,7 @@ public class TickReplayLoggerPanel extends PluginPanel
 	 */
 	public void onGameTick()
 	{
-		if (currentView.equals(LIVE_VIEW) && liveRecording)
+		if (liveViewEnabled && currentView.equals(LIVE_VIEW) && liveRecording)
 		{
 			SwingUtilities.invokeLater(this::refreshLiveTimeline);
 		}
@@ -341,36 +361,7 @@ public class TickReplayLoggerPanel extends PluginPanel
 
 		boolean hasContent = false;
 
-		// === Saved Recordings Section ===
-		if (!saved.isEmpty())
-		{
-			hasContent = true;
-			JPanel savedHeader = createSectionHeader("★ Saved Recordings (" + saved.size() + ")", new Color(80, 150, 80));
-			recordingsListContainer.add(savedHeader, gbc);
-			gbc.gridy++;
-
-			for (int i = 0; i < saved.size(); i++)
-			{
-				TickRecording recording = saved.get(i);
-				RecordingEntryPanel entryPanel = new RecordingEntryPanel(
-					recording, i + 1,
-					this::exportRecording,
-					this::deleteSavedRecording,
-					this::showPlayback,
-					null, // No save callback for already-saved items
-					spriteManager,
-					true  // isSaved = true
-				);
-				recordingsListContainer.add(entryPanel, gbc);
-				gbc.gridy++;
-			}
-
-			// Add spacing between sections
-			recordingsListContainer.add(Box.createVerticalStrut(10), gbc);
-			gbc.gridy++;
-		}
-
-		// === Recent Deaths Section ===
+		// === Recent Deaths Section (shown first - limited list) ===
 		if (!deaths.isEmpty())
 		{
 			hasContent = true;
@@ -387,8 +378,42 @@ public class TickReplayLoggerPanel extends PluginPanel
 					this::deleteDeath,
 					this::showPlayback,
 					this::saveRecording,  // Save callback to move to saved
+					this::renameRecording,
 					spriteManager,
 					false  // isSaved = false
+				);
+				recordingsListContainer.add(entryPanel, gbc);
+				gbc.gridy++;
+			}
+
+			// Add spacing between sections
+			if (!saved.isEmpty())
+			{
+				recordingsListContainer.add(Box.createVerticalStrut(10), gbc);
+				gbc.gridy++;
+			}
+		}
+
+		// === Saved Recordings Section ===
+		if (!saved.isEmpty())
+		{
+			hasContent = true;
+			JPanel savedHeader = createSectionHeader("Saved Recordings (" + saved.size() + ")", new Color(80, 150, 80));
+			recordingsListContainer.add(savedHeader, gbc);
+			gbc.gridy++;
+
+			for (int i = 0; i < saved.size(); i++)
+			{
+				TickRecording recording = saved.get(i);
+				RecordingEntryPanel entryPanel = new RecordingEntryPanel(
+					recording, i + 1,
+					this::exportRecording,
+					this::deleteSavedRecording,
+					this::showPlayback,
+					null, // No save callback for already-saved items
+					this::renameRecording,
+					spriteManager,
+					true  // isSaved = true
 				);
 				recordingsListContainer.add(entryPanel, gbc);
 				gbc.gridy++;
@@ -482,6 +507,26 @@ public class TickReplayLoggerPanel extends PluginPanel
 
 		liveTimelineContainer.revalidate();
 		liveTimelineContainer.repaint();
+		updateLiveSaveButtonState();
+	}
+
+	private void updateLiveSaveButtonState()
+	{
+		if (liveSaveBtn == null)
+		{
+			return;
+		}
+
+		if (liveSaveFeedbackActive)
+		{
+			// While feedback is active, keep current text/enabled state.
+			return;
+		}
+
+		boolean hasPausedSnapshot = pausedSnapshot != null && !pausedSnapshot.isEmpty();
+		boolean hasLiveTicks = tickRecorder != null && tickRecorder.getTickCount() > 0;
+		liveSaveBtn.setEnabled(hasPausedSnapshot || hasLiveTicks);
+		liveSaveBtn.setText(LIVE_SAVE_DEFAULT_TEXT);
 	}
 
 	/**
@@ -530,6 +575,42 @@ public class TickReplayLoggerPanel extends PluginPanel
 			"Saved",
 			JOptionPane.INFORMATION_MESSAGE
 		);
+	}
+
+	/**
+	 * Rename a recording (applies to both saved and recent entries).
+	 */
+	private void renameRecording(TickRecording recording)
+	{
+		if (recording == null)
+		{
+			return;
+		}
+
+		String currentName = recording.getKillerName();
+		String newName = (String) JOptionPane.showInputDialog(
+			this,
+			"Enter a new name:",
+			"Rename Recording",
+			JOptionPane.PLAIN_MESSAGE,
+			null,
+			null,
+			currentName
+		);
+
+		if (newName == null)
+		{
+			return;
+		}
+
+		String trimmed = newName.trim();
+		if (trimmed.isEmpty() || trimmed.equals(currentName))
+		{
+			return;
+		}
+
+		recordingStorage.renameRecording(recording, trimmed);
+		refreshRecordingsList();
 	}
 
 	/**
@@ -582,56 +663,42 @@ public class TickReplayLoggerPanel extends PluginPanel
 	 */
 	private void saveLiveBuffer()
 	{
-		if (pausedSnapshot == null || pausedSnapshot.isEmpty())
+		List<TickData> sourceTicks;
+		if (pausedSnapshot != null)
+		{
+			sourceTicks = new ArrayList<>(pausedSnapshot);
+		}
+		else if (tickRecorder != null && tickRecorder.getTickCount() > 0)
+		{
+			sourceTicks = new ArrayList<>(tickRecorder.getTickHistory());
+		}
+		else
 		{
 			JOptionPane.showMessageDialog(
 				this,
-				"Pause live view to capture ticks before saving.",
+				"No ticks recorded yet. Play for a bit before saving.",
 				"Save",
 				JOptionPane.WARNING_MESSAGE
 			);
 			return;
 		}
 
-		String name = JOptionPane.showInputDialog(
-			this,
-			"Enter a name for this recording:",
-			"Save Recording",
-			JOptionPane.QUESTION_MESSAGE
-		);
+		String name = "Live Snapshot - " + LocalDateTime.now().format(SNAPSHOT_FORMAT);
 
-		if (name == null || name.trim().isEmpty())
-		{
-			return; // Cancelled
-		}
-
-		List<TickData> ticks = new ArrayList<>(pausedSnapshot);
-		int totalDamage = TickRecording.calculateTotalDamage(ticks);
+		int totalDamage = TickRecording.calculateTotalDamage(sourceTicks);
 
 		TickRecording recording = TickRecording.builder()
 			.timestamp(System.currentTimeMillis())
 			.killerName(name.trim())
 			.location("Live Snapshot")
-			.ticks(ticks)
-			.finalHp(ticks.isEmpty() ? 0 : ticks.get(ticks.size() - 1).getCurrentHp())
+			.ticks(sourceTicks)
+			.finalHp(sourceTicks.isEmpty() ? 0 : sourceTicks.get(sourceTicks.size() - 1).getCurrentHp())
 			.totalDamageReceived(totalDamage)
 			.build();
 
 		recordingStorage.addSavedRecording(recording);
 		refreshRecordingsList();
-
-		JOptionPane.showMessageDialog(
-			this,
-			"Recording saved! (" + ticks.size() + " ticks)",
-			"Save Successful",
-			JOptionPane.INFORMATION_MESSAGE
-		);
-
-		// Switch to recordings view
-		if (currentView.equals(LIVE_VIEW))
-		{
-			toggleView();
-		}
+		showLiveSaveFeedback();
 	}
 
 	/**
@@ -642,5 +709,55 @@ public class TickReplayLoggerPanel extends PluginPanel
 		Toolkit.getDefaultToolkit()
 			.getSystemClipboard()
 			.setContents(new StringSelection(text), null);
+	}
+
+	private void showLiveSaveFeedback()
+	{
+		if (liveSaveBtn == null)
+		{
+			return;
+		}
+
+		if (liveSaveFeedbackTimer != null && liveSaveFeedbackTimer.isRunning())
+		{
+			liveSaveFeedbackTimer.stop();
+		}
+
+		liveSaveFeedbackActive = true;
+		liveSaveBtn.setText("Saved!");
+		liveSaveBtn.setEnabled(false);
+
+		liveSaveFeedbackTimer = new Timer(LIVE_SAVE_FEEDBACK_DURATION_MS, e ->
+		{
+			liveSaveFeedbackActive = false;
+			liveSaveBtn.setText(LIVE_SAVE_DEFAULT_TEXT);
+			updateLiveSaveButtonState();
+		});
+		liveSaveFeedbackTimer.setRepeats(false);
+		liveSaveFeedbackTimer.start();
+	}
+
+	/**
+	 * Enable or disable live view (configuration controlled).
+	 */
+	public void setLiveViewEnabled(boolean enabled)
+	{
+		liveViewEnabled = enabled;
+		toggleViewBtn.setEnabled(enabled);
+		if (enabled)
+		{
+			toggleViewBtn.setText(currentView.equals(LIVE_VIEW) ? "Recordings" : "Live View");
+			toggleViewBtn.setToolTipText("Switch to live timeline view");
+		}
+		else
+		{
+			toggleViewBtn.setText("Live View (disabled)");
+			toggleViewBtn.setToolTipText("Enable Live View in the config to use this feature");
+			if (currentView.equals(LIVE_VIEW) || currentView.equals(PLAYBACK_VIEW))
+			{
+				currentView = RECORDINGS_VIEW;
+				cardLayout.show(contentPanel, RECORDINGS_VIEW);
+			}
+		}
 	}
 }

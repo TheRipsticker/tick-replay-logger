@@ -42,6 +42,7 @@ public class RecordingEntryPanel extends JPanel
 	private final JPanel ticksPanel;
 	private final SpriteManager spriteManager;
 	private final Consumer<TickRecording> saveCallback;
+	private final Consumer<TickRecording> renameCallback;
 	private final boolean isSaved;
 	private boolean expanded = false;
 
@@ -56,19 +57,20 @@ public class RecordingEntryPanel extends JPanel
 	/**
 	 * Constructor for recordings (without save callback).
 	 */
-	public RecordingEntryPanel(TickRecording recording, int recordingNumber, Consumer<TickRecording> exportCallback, Consumer<TickRecording> deleteCallback, Consumer<TickRecording> playbackCallback, SpriteManager spriteManager)
+	public RecordingEntryPanel(TickRecording recording, int recordingNumber, Consumer<TickRecording> exportCallback, Consumer<TickRecording> deleteCallback, Consumer<TickRecording> playbackCallback, Consumer<TickRecording> renameCallback, SpriteManager spriteManager)
 	{
-		this(recording, recordingNumber, exportCallback, deleteCallback, playbackCallback, null, spriteManager, false);
+		this(recording, recordingNumber, exportCallback, deleteCallback, playbackCallback, null, renameCallback, spriteManager, false);
 	}
 
 	/**
 	 * Constructor with save callback and saved flag.
 	 */
-	public RecordingEntryPanel(TickRecording recording, int recordingNumber, Consumer<TickRecording> exportCallback, Consumer<TickRecording> deleteCallback, Consumer<TickRecording> playbackCallback, Consumer<TickRecording> saveCallback, SpriteManager spriteManager, boolean isSaved)
+	public RecordingEntryPanel(TickRecording recording, int recordingNumber, Consumer<TickRecording> exportCallback, Consumer<TickRecording> deleteCallback, Consumer<TickRecording> playbackCallback, Consumer<TickRecording> saveCallback, Consumer<TickRecording> renameCallback, SpriteManager spriteManager, boolean isSaved)
 	{
 		this.recording = recording;
 		this.spriteManager = spriteManager;
 		this.saveCallback = saveCallback;
+		this.renameCallback = renameCallback;
 		this.isSaved = isSaved;
 
 		loadSprites();
@@ -140,12 +142,11 @@ public class RecordingEntryPanel extends JPanel
 		header.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		header.setBorder(new EmptyBorder(0, 0, 5, 0));
 
-		// Row 1: Title and utility buttons
+		// Row 1: Title bar
 		JPanel titleRow = new JPanel(new BorderLayout());
 		titleRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		titleRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		// Title with skull icon
 		JLabel titleLabel = new JLabel("#" + recordingNumber + ": " + recording.getKillerName());
 		titleLabel.setForeground(Color.WHITE);
 		titleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
@@ -155,54 +156,90 @@ public class RecordingEntryPanel extends JPanel
 			titleLabel.setIconTextGap(6);
 		}
 		titleRow.add(titleLabel, BorderLayout.WEST);
-
-		// Small utility buttons on right
-		JPanel utilityPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
-		utilityPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-
-		// Save button (only for recordings that can be saved)
-		if (saveCallback != null && !isSaved)
-		{
-			JButton saveBtn = new JButton("★");
-			saveBtn.setMargin(new Insets(1, 3, 1, 3));
-			saveBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
-			saveBtn.setBackground(new Color(50, 80, 50));
-			saveBtn.setForeground(new Color(150, 200, 150));
-			saveBtn.setToolTipText("Save this recording (won't auto-delete)");
-			saveBtn.addActionListener(e -> saveCallback.accept(recording));
-			utilityPanel.add(saveBtn);
-		}
-
-		JButton exportBtn = new JButton("Copy");
-		exportBtn.setMargin(new Insets(1, 3, 1, 3));
-		exportBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
-		exportBtn.setToolTipText("Copy recording data as JSON");
-		exportBtn.addActionListener(e -> exportCallback.accept(recording));
-		utilityPanel.add(exportBtn);
-
-		JButton deleteBtn = new JButton("X");
-		deleteBtn.setMargin(new Insets(1, 3, 1, 3));
-		deleteBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
-		deleteBtn.setToolTipText("Delete this recording");
-		deleteBtn.addActionListener(e -> deleteCallback.accept(recording));
-		utilityPanel.add(deleteBtn);
-
-		titleRow.add(utilityPanel, BorderLayout.EAST);
 		header.add(titleRow);
 
-		// Row 2: Details
+		// Row 2: Details + button column
+		JPanel detailRow = new JPanel(new BorderLayout());
+		detailRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		detailRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		detailRow.setBorder(new EmptyBorder(4, 0, 0, 0));
+
+		JPanel detailColumn = new JPanel();
+		detailColumn.setLayout(new BoxLayout(detailColumn, BoxLayout.Y_AXIS));
+		detailColumn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+
 		JLabel detailLabel = new JLabel(recording.getTimeSinceRecording() + " - " + recording.getLocation());
 		detailLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		detailLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-		detailLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		header.add(detailLabel);
+		detailColumn.add(detailLabel);
 
-		// Row 3: Summary
 		JLabel summaryLabel = new JLabel(recording.getTicks().size() + " ticks, " + recording.getTotalDamageReceived() + " dmg taken");
 		summaryLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		summaryLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-		summaryLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		header.add(summaryLabel);
+		detailColumn.add(summaryLabel);
+
+		JPanel actionColumn = new JPanel();
+		actionColumn.setLayout(new BoxLayout(actionColumn, BoxLayout.Y_AXIS));
+		actionColumn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		actionColumn.setBorder(new EmptyBorder(0, 12, 0, 0));
+
+		Consumer<JButton> styleButton = btn -> {
+			btn.setMargin(new Insets(1, 4, 1, 4));
+			btn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+			Dimension size = new Dimension(90, 20);
+			btn.setMaximumSize(size);
+			btn.setMinimumSize(size);
+			btn.setPreferredSize(size);
+			btn.setAlignmentX(Component.CENTER_ALIGNMENT);
+			btn.setFocusPainted(false);
+			btn.setBackground(new Color(56, 56, 56));
+			btn.setForeground(Color.WHITE);
+			btn.setBorder(BorderFactory.createLineBorder(new Color(80, 80, 80)));
+			btn.setOpaque(true);
+		};
+
+		if (saveCallback != null && !isSaved)
+		{
+			JButton saveBtn = new JButton("Save");
+			saveBtn.setToolTipText("Save this recording (won't auto-delete)");
+			saveBtn.addActionListener(e -> saveCallback.accept(recording));
+			styleButton.accept(saveBtn);
+			saveBtn.setBackground(new Color(50, 80, 50));
+			saveBtn.setForeground(new Color(170, 220, 170));
+			actionColumn.add(saveBtn);
+			actionColumn.add(Box.createVerticalStrut(4));
+		}
+
+		JButton renameBtn = new JButton("Rename");
+		if (renameCallback != null)
+		{
+			renameBtn.setToolTipText("Rename this recording");
+			renameBtn.addActionListener(e -> renameCallback.accept(recording));
+		}
+		else
+		{
+			renameBtn.setEnabled(false);
+		}
+		styleButton.accept(renameBtn);
+		actionColumn.add(renameBtn);
+		actionColumn.add(Box.createVerticalStrut(4));
+
+		JButton deleteBtn = new JButton("Delete");
+		deleteBtn.setToolTipText("Delete this recording");
+		deleteBtn.addActionListener(e -> deleteCallback.accept(recording));
+		styleButton.accept(deleteBtn);
+		actionColumn.add(deleteBtn);
+		actionColumn.add(Box.createVerticalStrut(4));
+
+		JButton exportBtn = new JButton("Copy");
+		exportBtn.setToolTipText("Copy recording data as JSON");
+		exportBtn.addActionListener(e -> exportCallback.accept(recording));
+		styleButton.accept(exportBtn);
+		actionColumn.add(exportBtn);
+
+		detailRow.add(detailColumn, BorderLayout.CENTER);
+		detailRow.add(actionColumn, BorderLayout.EAST);
+		header.add(detailRow);
 
 		header.add(Box.createVerticalStrut(6));
 
