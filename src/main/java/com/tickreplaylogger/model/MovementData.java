@@ -1,4 +1,4 @@
-package com.deathtrace.model;
+package com.tickreplaylogger.model;
 
 import lombok.Builder;
 import lombok.Data;

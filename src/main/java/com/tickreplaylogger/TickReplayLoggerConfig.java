@@ -1,12 +1,12 @@
-package com.deathtrace;
+package com.tickreplaylogger;
 
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
 
-@ConfigGroup("deathtrace")
-public interface DeathTraceConfig extends Config
+@ConfigGroup("tickreplaylogger")
+public interface TickReplayLoggerConfig extends Config
 {
 	@ConfigSection(
 		name = "General",

@@ -1,13 +1,13 @@
-package com.deathtrace;
+package com.tickreplaylogger;
 
-import com.deathtrace.model.DamageEvent;
-import com.deathtrace.model.DeathRecord;
-import com.deathtrace.model.MovementData;
-import com.deathtrace.model.PlayerAction;
-import com.deathtrace.model.TickData;
-import com.deathtrace.ui.DeathTracePanel;
-import com.deathtrace.util.DeathStorage;
-import com.deathtrace.util.TickRecorder;
+import com.tickreplaylogger.model.DamageEvent;
+import com.tickreplaylogger.model.TickRecording;
+import com.tickreplaylogger.model.MovementData;
+import com.tickreplaylogger.model.PlayerAction;
+import com.tickreplaylogger.model.TickData;
+import com.tickreplaylogger.ui.TickReplayLoggerPanel;
+import com.tickreplaylogger.util.RecordingStorage;
+import com.tickreplaylogger.util.TickRecorder;
 import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
@@ -45,11 +45,11 @@ import java.util.List;
 
 @Slf4j
 @PluginDescriptor(
-	name = "Death Trace",
-	description = "Records tick-by-tick combat actions for post-death analysis",
-	tags = {"combat", "pvm", "learning", "death", "trace", "analysis"}
+	name = "Tick Replay Logger",
+	description = "Records tick-by-tick combat actions for post-death analysis and replay",
+	tags = {"combat", "pvm", "learning", "death", "trace", "analysis", "tick", "replay", "logger"}
 )
-public class DeathTracePlugin extends Plugin
+public class TickReplayLoggerPlugin extends Plugin
 {
 	private static final int DEFAULT_TICK_CAPACITY = 50;
 	private static final int DEFAULT_MAX_DEATHS = 3;
@@ -58,7 +58,7 @@ public class DeathTracePlugin extends Plugin
 	private Client client;
 
 	@Inject
-	private DeathTraceConfig config;
+	private TickReplayLoggerConfig config;
 
 	@Inject
 	private ClientToolbar clientToolbar;
@@ -67,8 +67,8 @@ public class DeathTracePlugin extends Plugin
 	private SpriteManager spriteManager;
 
 	private TickRecorder tickRecorder;
-	private DeathStorage deathStorage;
-	private DeathTracePanel panel;
+	private RecordingStorage recordingStorage;
+	private TickReplayLoggerPanel panel;
 	private NavigationButton navButton;
 
 	// Track what NPC is currently attacking the player (for damage source attribution)
@@ -82,6 +82,43 @@ public class DeathTracePlugin extends Plugin
 	private int lastTickPrayerPoints = 0;
 	private final java.util.Set<String> manuallyDeactivatedPrayers = new java.util.HashSet<>();
 
+	// Mutually exclusive prayer groups (only one can be active at a time)
+	// All overhead prayers are mutually exclusive (protection, Retribution, Redemption, Smite)
+	private static final java.util.Set<String> OVERHEAD_PRAYERS = java.util.Set.of(
+		"Protect From Melee", "Protect From Missiles", "Protect From Magic",
+		"Retribution", "Redemption", "Smite"
+	);
+
+	// Defence boosting prayers (conflict with each other)
+	private static final java.util.Set<String> DEFENCE_PRAYERS = java.util.Set.of(
+		"Thick Skin", "Rock Skin", "Steel Skin", "Chivalry", "Piety", "Rigour", "Augury"
+	);
+
+	// Attack boosting prayers (conflict with Chivalry/Piety)
+	private static final java.util.Set<String> ATTACK_PRAYERS = java.util.Set.of(
+		"Clarity of Thought", "Improved Reflexes", "Incredible Reflexes", "Chivalry", "Piety"
+	);
+
+	// Strength boosting prayers (conflict with Chivalry/Piety)
+	private static final java.util.Set<String> STRENGTH_PRAYERS = java.util.Set.of(
+		"Burst of Strength", "Superhuman Strength", "Ultimate Strength", "Chivalry", "Piety"
+	);
+
+	// Ranged boosting prayers (conflict with Rigour)
+	private static final java.util.Set<String> RANGED_PRAYERS = java.util.Set.of(
+		"Sharp Eye", "Hawk Eye", "Eagle Eye", "Rigour"
+	);
+
+	// Magic boosting prayers (conflict with Augury)
+	private static final java.util.Set<String> MAGIC_PRAYERS = java.util.Set.of(
+		"Mystic Will", "Mystic Lore", "Mystic Might", "Augury"
+	);
+
+	// All conflict groups for checking switches
+	private static final java.util.List<java.util.Set<String>> PRAYER_CONFLICT_GROUPS = java.util.List.of(
+		OVERHEAD_PRAYERS, DEFENCE_PRAYERS, ATTACK_PRAYERS, STRENGTH_PRAYERS, RANGED_PRAYERS, MAGIC_PRAYERS
+	);
+
 	// Track special attack energy for detecting spec usage
 	private int lastSpecialAttackPercent = 100;
 
@@ -89,16 +126,16 @@ public class DeathTracePlugin extends Plugin
 	protected void startUp() throws Exception
 	{
 		tickRecorder = new TickRecorder(config.ticksToRecord());
-		deathStorage = new DeathStorage(config.maxDeathsToStore());
+		recordingStorage = new RecordingStorage(config.maxDeathsToStore());
 
 		// Create panel
-		panel = new DeathTracePanel(deathStorage, spriteManager);
+		panel = new TickReplayLoggerPanel(recordingStorage, spriteManager);
 		panel.setTickRecorder(tickRecorder);
 
 		// Create navigation button with panel icon
-		final BufferedImage icon = ImageUtil.loadImageResource(DeathTracePlugin.class, "panel_icon.png");
+		final BufferedImage icon = ImageUtil.loadImageResource(TickReplayLoggerPlugin.class, "panel_icon.png");
 		navButton = NavigationButton.builder()
-			.tooltip("Death Trace")
+			.tooltip("Tick Replay Logger")
 			.icon(icon)
 			.priority(6)
 			.panel(panel)
@@ -106,7 +143,7 @@ public class DeathTracePlugin extends Plugin
 
 		clientToolbar.addNavigation(navButton);
 
-		log.info("Death Trace plugin started! Recording last {} ticks, storing {} deaths.",
+		log.info("Tick Replay Logger plugin started! Recording last {} ticks, storing {} deaths.",
 			config.ticksToRecord(), config.maxDeathsToStore());
 	}
 
@@ -119,7 +156,7 @@ public class DeathTracePlugin extends Plugin
 		{
 			tickRecorder.clear();
 		}
-		log.info("Death Trace plugin stopped!");
+		log.info("Tick Replay Logger plugin stopped!");
 	}
 
 	@Subscribe
@@ -159,7 +196,7 @@ public class DeathTracePlugin extends Plugin
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
-		if (!event.getGroup().equals("deathtrace"))
+		if (!event.getGroup().equals("tickreplaylogger"))
 		{
 			return;
 		}
@@ -175,9 +212,9 @@ public class DeathTracePlugin extends Plugin
 		else if (event.getKey().equals("maxDeathsToStore"))
 		{
 			int newMax = config.maxDeathsToStore();
-			if (deathStorage != null)
+			if (recordingStorage != null)
 			{
-				deathStorage.setMaxDeaths(newMax);
+				recordingStorage.setMaxDeaths(newMax);
 				// Refresh panel in case deaths were pruned
 				if (panel != null)
 				{
@@ -219,10 +256,10 @@ public class DeathTracePlugin extends Plugin
 			"(" + location.getX() + ", " + location.getY() + ")" : "Unknown";
 
 		// Calculate total damage received
-		int totalDamage = DeathRecord.calculateTotalDamage(tickHistory);
+		int totalDamage = TickRecording.calculateTotalDamage(tickHistory);
 
 		// Create death record
-		DeathRecord death = DeathRecord.builder()
+		TickRecording death = TickRecording.builder()
 			.timestamp(System.currentTimeMillis())
 			.killerName(killer)
 			.location(locationStr)
@@ -232,7 +269,7 @@ public class DeathTracePlugin extends Plugin
 			.build();
 
 		// Save to storage
-		deathStorage.addDeath(death);
+		recordingStorage.addDeath(death);
 
 		// Refresh the panel to show the new death
 		if (panel != null)
@@ -479,6 +516,17 @@ public class DeathTracePlugin extends Plugin
 			{
 				if (!activePrayers.contains(prayer) && !manuallyDeactivatedPrayers.contains(prayer))
 				{
+					// Check if this prayer was switched to another in the same mutually exclusive group
+					// (e.g., switching from Protect from Melee to Protect from Missiles)
+					boolean wasSwitched = isPrayerSwitch(prayer, activePrayers);
+
+					// Skip logging if it was just a prayer switch (not a drain/disable)
+					if (wasSwitched)
+					{
+						log.debug("Prayer switch detected: {} -> conflicting prayer", prayer);
+						continue;
+					}
+
 					// Prayer was active last tick but not now, and player didn't manually deactivate
 					String reason;
 					if (currentPrayer == 0 && lastTickPrayerPoints > 0)
@@ -745,6 +793,34 @@ public class DeathTracePlugin extends Plugin
 	}
 
 	/**
+	 * Check if a prayer was switched to another in a conflicting group.
+	 * E.g., switching from Protect from Melee to Protect from Missiles.
+	 *
+	 * @param oldPrayer The prayer that was deactivated
+	 * @param activePrayers The currently active prayers
+	 * @return true if the prayer was switched (not drained/disabled)
+	 */
+	private boolean isPrayerSwitch(String oldPrayer, List<String> activePrayers)
+	{
+		// Check each conflict group
+		for (java.util.Set<String> group : PRAYER_CONFLICT_GROUPS)
+		{
+			if (group.contains(oldPrayer))
+			{
+				// Old prayer is in this group - check if another prayer from the same group is now active
+				for (String activePrayer : activePrayers)
+				{
+					if (group.contains(activePrayer) && !activePrayer.equals(oldPrayer))
+					{
+						return true; // Found a conflicting prayer that's now active
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Format prayer enum name to readable string.
 	 * E.g., PROTECT_FROM_MELEE -> "Protect from Melee"
 	 */
@@ -775,16 +851,16 @@ public class DeathTracePlugin extends Plugin
 	}
 
 	/**
-	 * Get the death storage for UI access
+	 * Get the recording storage for UI access
 	 */
-	public DeathStorage getDeathStorage()
+	public RecordingStorage getRecordingStorage()
 	{
-		return deathStorage;
+		return recordingStorage;
 	}
 
 	@Provides
-	DeathTraceConfig provideConfig(ConfigManager configManager)
+	TickReplayLoggerConfig provideConfig(ConfigManager configManager)
 	{
-		return configManager.getConfig(DeathTraceConfig.class);
+		return configManager.getConfig(TickReplayLoggerConfig.class);
 	}
 }

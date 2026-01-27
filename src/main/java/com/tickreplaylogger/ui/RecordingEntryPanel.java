@@ -1,10 +1,10 @@
-package com.deathtrace.ui;
+package com.tickreplaylogger.ui;
 
-import com.deathtrace.model.DamageEvent;
-import com.deathtrace.model.DeathRecord;
-import com.deathtrace.model.MovementData;
-import com.deathtrace.model.PlayerAction;
-import com.deathtrace.model.TickData;
+import com.tickreplaylogger.model.DamageEvent;
+import com.tickreplaylogger.model.TickRecording;
+import com.tickreplaylogger.model.MovementData;
+import com.tickreplaylogger.model.PlayerAction;
+import com.tickreplaylogger.model.TickData;
 import net.runelite.api.SpriteID;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.ui.ColorScheme;
@@ -17,9 +17,9 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Panel displaying a single death entry with expandable tick timeline.
+ * Panel displaying a single recording entry with expandable tick timeline.
  */
-public class DeathEntryPanel extends JPanel
+public class RecordingEntryPanel extends JPanel
 {
 	private static final Color DAMAGE_RECEIVED_COLOR = new Color(255, 100, 100);
 	private static final Color DAMAGE_DEALT_COLOR = new Color(100, 255, 100);
@@ -38,9 +38,11 @@ public class DeathEntryPanel extends JPanel
 
 	private static final int ICON_SIZE = 18;
 
-	private final DeathRecord death;
+	private final TickRecording recording;
 	private final JPanel ticksPanel;
 	private final SpriteManager spriteManager;
+	private final Consumer<TickRecording> saveCallback;
+	private final boolean isSaved;
 	private boolean expanded = false;
 
 	// Cached icons
@@ -51,10 +53,23 @@ public class DeathEntryPanel extends JPanel
 	private ImageIcon iconHeart;
 	private ImageIcon iconAgility;
 
-	public DeathEntryPanel(DeathRecord death, int deathNumber, Consumer<DeathRecord> exportCallback, Consumer<DeathRecord> deleteCallback, Consumer<DeathRecord> playbackCallback, SpriteManager spriteManager)
+	/**
+	 * Constructor for recordings (without save callback).
+	 */
+	public RecordingEntryPanel(TickRecording recording, int recordingNumber, Consumer<TickRecording> exportCallback, Consumer<TickRecording> deleteCallback, Consumer<TickRecording> playbackCallback, SpriteManager spriteManager)
 	{
-		this.death = death;
+		this(recording, recordingNumber, exportCallback, deleteCallback, playbackCallback, null, spriteManager, false);
+	}
+
+	/**
+	 * Constructor with save callback and saved flag.
+	 */
+	public RecordingEntryPanel(TickRecording recording, int recordingNumber, Consumer<TickRecording> exportCallback, Consumer<TickRecording> deleteCallback, Consumer<TickRecording> playbackCallback, Consumer<TickRecording> saveCallback, SpriteManager spriteManager, boolean isSaved)
+	{
+		this.recording = recording;
 		this.spriteManager = spriteManager;
+		this.saveCallback = saveCallback;
+		this.isSaved = isSaved;
 
 		loadSprites();
 
@@ -63,7 +78,7 @@ public class DeathEntryPanel extends JPanel
 		setBorder(new EmptyBorder(8, 8, 8, 8));
 
 		// Header panel (always visible)
-		JPanel headerPanel = createHeaderPanel(deathNumber, exportCallback, deleteCallback, playbackCallback);
+		JPanel headerPanel = createHeaderPanel(recordingNumber, exportCallback, deleteCallback, playbackCallback);
 		add(headerPanel, BorderLayout.NORTH);
 
 		// Ticks panel (expandable) - use GridBagLayout to respect width
@@ -118,20 +133,20 @@ public class DeathEntryPanel extends JPanel
 		return new Dimension(Integer.MAX_VALUE, pref.height);
 	}
 
-	private JPanel createHeaderPanel(int deathNumber, Consumer<DeathRecord> exportCallback, Consumer<DeathRecord> deleteCallback, Consumer<DeathRecord> playbackCallback)
+	private JPanel createHeaderPanel(int recordingNumber, Consumer<TickRecording> exportCallback, Consumer<TickRecording> deleteCallback, Consumer<TickRecording> playbackCallback)
 	{
 		JPanel header = new JPanel();
 		header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
 		header.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		header.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		header.setBorder(new EmptyBorder(0, 0, 5, 0));
 
-		// Row 1: Title and buttons
+		// Row 1: Title and utility buttons
 		JPanel titleRow = new JPanel(new BorderLayout());
 		titleRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		titleRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
 		// Title with skull icon
-		JLabel titleLabel = new JLabel("#" + deathNumber + ": " + death.getKillerName());
+		JLabel titleLabel = new JLabel("#" + recordingNumber + ": " + recording.getKillerName());
 		titleLabel.setForeground(Color.WHITE);
 		titleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
 		if (iconSkull != null)
@@ -141,52 +156,84 @@ public class DeathEntryPanel extends JPanel
 		}
 		titleRow.add(titleLabel, BorderLayout.WEST);
 
-		JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
-		buttonPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		// Small utility buttons on right
+		JPanel utilityPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+		utilityPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
-		JButton playbackBtn = new JButton("▶");
-		playbackBtn.setMargin(new Insets(1, 4, 1, 4));
-		playbackBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
-		playbackBtn.setToolTipText("Playback this death");
-		playbackBtn.addActionListener(e -> playbackCallback.accept(death));
-		buttonPanel.add(playbackBtn);
+		// Save button (only for recordings that can be saved)
+		if (saveCallback != null && !isSaved)
+		{
+			JButton saveBtn = new JButton("★");
+			saveBtn.setMargin(new Insets(1, 3, 1, 3));
+			saveBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
+			saveBtn.setBackground(new Color(50, 80, 50));
+			saveBtn.setForeground(new Color(150, 200, 150));
+			saveBtn.setToolTipText("Save this recording (won't auto-delete)");
+			saveBtn.addActionListener(e -> saveCallback.accept(recording));
+			utilityPanel.add(saveBtn);
+		}
 
 		JButton exportBtn = new JButton("Copy");
-		exportBtn.setMargin(new Insets(1, 4, 1, 4));
-		exportBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
-		exportBtn.addActionListener(e -> exportCallback.accept(death));
-		buttonPanel.add(exportBtn);
+		exportBtn.setMargin(new Insets(1, 3, 1, 3));
+		exportBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
+		exportBtn.setToolTipText("Copy recording data as JSON");
+		exportBtn.addActionListener(e -> exportCallback.accept(recording));
+		utilityPanel.add(exportBtn);
 
 		JButton deleteBtn = new JButton("X");
-		deleteBtn.setMargin(new Insets(1, 4, 1, 4));
-		deleteBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
-		deleteBtn.setToolTipText("Delete this death record");
-		deleteBtn.addActionListener(e -> deleteCallback.accept(death));
-		buttonPanel.add(deleteBtn);
+		deleteBtn.setMargin(new Insets(1, 3, 1, 3));
+		deleteBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
+		deleteBtn.setToolTipText("Delete this recording");
+		deleteBtn.addActionListener(e -> deleteCallback.accept(recording));
+		utilityPanel.add(deleteBtn);
 
-		JButton expandBtn = new JButton("▼");
-		expandBtn.setMargin(new Insets(1, 4, 1, 4));
-		expandBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
-		expandBtn.addActionListener(e -> toggleExpanded(expandBtn));
-		buttonPanel.add(expandBtn);
-
-		titleRow.add(buttonPanel, BorderLayout.EAST);
+		titleRow.add(utilityPanel, BorderLayout.EAST);
 		header.add(titleRow);
 
 		// Row 2: Details
-		JLabel detailLabel = new JLabel(death.getTimeSinceDeath() + " - " + death.getLocation());
+		JLabel detailLabel = new JLabel(recording.getTimeSinceRecording() + " - " + recording.getLocation());
 		detailLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		detailLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+		detailLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+		detailLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		header.add(detailLabel);
 
 		// Row 3: Summary
-		JLabel summaryLabel = new JLabel(death.getTicks().size() + " ticks, " + death.getTotalDamageReceived() + " dmg");
+		JLabel summaryLabel = new JLabel(recording.getTicks().size() + " ticks, " + recording.getTotalDamageReceived() + " dmg taken");
 		summaryLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		summaryLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+		summaryLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+		summaryLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		header.add(summaryLabel);
 
-		// Click header to expand
-		header.addMouseListener(new java.awt.event.MouseAdapter()
+		header.add(Box.createVerticalStrut(6));
+
+		// Row 4: Action buttons - Play and Expand on their own row
+		JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+		actionRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		actionRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		// Prominent playback button
+		JButton playbackBtn = new JButton("▶ Replay");
+		playbackBtn.setMargin(new Insets(4, 12, 4, 12));
+		playbackBtn.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
+		playbackBtn.setBackground(new Color(50, 100, 50));
+		playbackBtn.setForeground(new Color(150, 255, 150));
+		playbackBtn.setToolTipText("Replay this recording tick-by-tick");
+		playbackBtn.addActionListener(e -> playbackCallback.accept(recording));
+		playbackBtn.setFocusPainted(false);
+		actionRow.add(playbackBtn);
+
+		JButton expandBtn = new JButton("▼ Timeline");
+		expandBtn.setMargin(new Insets(4, 8, 4, 8));
+		expandBtn.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+		expandBtn.setToolTipText("Expand tick timeline");
+		expandBtn.addActionListener(e -> toggleExpanded(expandBtn));
+		actionRow.add(expandBtn);
+
+		header.add(actionRow);
+
+		// Click non-button areas to expand
+		titleRow.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		titleRow.addMouseListener(new java.awt.event.MouseAdapter()
 		{
 			@Override
 			public void mouseClicked(java.awt.event.MouseEvent e)
@@ -201,7 +248,7 @@ public class DeathEntryPanel extends JPanel
 	private void toggleExpanded(JButton expandBtn)
 	{
 		expanded = !expanded;
-		expandBtn.setText(expanded ? "▲" : "▼");
+		expandBtn.setText(expanded ? "▲ Timeline" : "▼ Timeline");
 
 		if (expanded && ticksPanel.getComponentCount() == 0)
 		{
@@ -223,7 +270,7 @@ public class DeathEntryPanel extends JPanel
 		gbc.anchor = GridBagConstraints.NORTH;
 		gbc.insets = new Insets(1, 0, 1, 0);
 
-		List<TickData> ticks = death.getTicks();
+		List<TickData> ticks = recording.getTicks();
 		int totalTicks = ticks.size();
 		int rowIndex = 0;
 
@@ -326,9 +373,9 @@ public class DeathEntryPanel extends JPanel
 
 		// Show HP change from previous tick to this tick
 		// Get previous tick's HP (i-1 in array = earlier in game time)
-		int prevTickIndex = death.getTicks().size() - 2 - ticksBeforeDeath;
-		int prevTickHp = (prevTickIndex >= 0 && prevTickIndex < death.getTicks().size()) ?
-			death.getTicks().get(prevTickIndex).getCurrentHp() :
+		int prevTickIndex = recording.getTicks().size() - 2 - ticksBeforeDeath;
+		int prevTickHp = (prevTickIndex >= 0 && prevTickIndex < recording.getTicks().size()) ?
+			recording.getTicks().get(prevTickIndex).getCurrentHp() :
 			tick.getCurrentHp();
 
 		if (!isDeathTick)
@@ -339,9 +386,9 @@ public class DeathEntryPanel extends JPanel
 			// HP is recorded at START of tick, damage happens DURING the tick
 			// So damage events on the PREVIOUS tick (in game time) cause HP changes on THIS tick
 			int trackedDamageReceived = 0;
-			if (prevTickIndex >= 0 && prevTickIndex < death.getTicks().size())
+			if (prevTickIndex >= 0 && prevTickIndex < recording.getTicks().size())
 			{
-				TickData prevTick = death.getTicks().get(prevTickIndex);
+				TickData prevTick = recording.getTicks().get(prevTickIndex);
 				for (DamageEvent dmg : prevTick.getDamageEvents())
 				{
 					if (dmg.getDirection() == DamageEvent.DamageDirection.RECEIVED)

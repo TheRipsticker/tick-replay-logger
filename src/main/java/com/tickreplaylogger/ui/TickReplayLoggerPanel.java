@@ -1,10 +1,10 @@
-package com.deathtrace.ui;
+package com.tickreplaylogger.ui;
 
-import com.deathtrace.model.DeathRecord;
-import com.deathtrace.model.TickData;
-import com.deathtrace.ui.playback.PlaybackPanel;
-import com.deathtrace.util.DeathStorage;
-import com.deathtrace.util.TickRecorder;
+import com.tickreplaylogger.model.TickRecording;
+import com.tickreplaylogger.model.TickData;
+import com.tickreplaylogger.ui.playback.PlaybackPanel;
+import com.tickreplaylogger.util.RecordingStorage;
+import com.tickreplaylogger.util.TickRecorder;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.runelite.client.game.SpriteManager;
@@ -15,20 +15,22 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
- * Main panel for Death Trace plugin.
- * Shows list of recent deaths with expandable tick timelines,
+ * Main panel for Tick Replay Logger plugin.
+ * Shows list of recent deaths and saved recordings with expandable tick timelines,
  * or a live timeline of the current tick buffer.
  */
-public class DeathTracePanel extends PluginPanel
+public class TickReplayLoggerPanel extends PluginPanel
 {
-	private static final String DEATHS_VIEW = "deaths";
+	private static final String RECORDINGS_VIEW = "recordings";
 	private static final String LIVE_VIEW = "live";
 	private static final String PLAYBACK_VIEW = "playback";
 
-	private final DeathStorage deathStorage;
+	private final RecordingStorage recordingStorage;
 	private final SpriteManager spriteManager;
 	private TickRecorder tickRecorder;
 
@@ -36,18 +38,20 @@ public class DeathTracePanel extends PluginPanel
 	private final CardLayout cardLayout;
 	private final JPanel contentPanel;
 	private final JButton toggleViewBtn;
-	private String currentView = DEATHS_VIEW;
-	private String previousView = DEATHS_VIEW; // For returning from playback
+	private String currentView = RECORDINGS_VIEW;
+	private String previousView = RECORDINGS_VIEW; // For returning from playback
 
-	// Deaths view components
-	private final JPanel deathListContainer;
-	private final JLabel noDeathsLabel;
+	// Recordings view components (deaths + saved)
+	private final JPanel recordingsListContainer;
+	private final JLabel noRecordingsLabel;
 
 	// Live view components
 	private final JPanel liveTimelineContainer;
 	private final JLabel liveStatusLabel;
 	private final JButton liveStartStopBtn;
+	private final JButton liveSaveBtn;
 	private boolean liveRecording = true; // Controls display updates
+	private List<TickData> pausedSnapshot;
 
 	// Playback view components
 	private final PlaybackPanel playbackPanel;
@@ -55,10 +59,10 @@ public class DeathTracePanel extends PluginPanel
 	// Gson for JSON export
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
-	public DeathTracePanel(DeathStorage deathStorage, SpriteManager spriteManager)
+	public TickReplayLoggerPanel(RecordingStorage recordingStorage, SpriteManager spriteManager)
 	{
 		super(false);
-		this.deathStorage = deathStorage;
+		this.recordingStorage = recordingStorage;
 		this.spriteManager = spriteManager;
 
 		setLayout(new BorderLayout());
@@ -69,7 +73,7 @@ public class DeathTracePanel extends PluginPanel
 		headerPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		headerPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-		JLabel titleLabel = new JLabel("Death Trace");
+		JLabel titleLabel = new JLabel("Tick Replay Logger");
 		titleLabel.setForeground(Color.WHITE);
 		titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 16f));
 		headerPanel.add(titleLabel, BorderLayout.WEST);
@@ -87,12 +91,12 @@ public class DeathTracePanel extends PluginPanel
 		contentPanel = new JPanel(cardLayout);
 		contentPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
-		// === Deaths View ===
-		JPanel deathsViewPanel = new JPanel(new BorderLayout());
-		deathsViewPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		// === Recordings View (Deaths + Saved) ===
+		JPanel recordingsViewPanel = new JPanel(new BorderLayout());
+		recordingsViewPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
-		// Deaths list container
-		deathListContainer = new JPanel(new GridBagLayout())
+		// Recordings list container
+		recordingsListContainer = new JPanel(new GridBagLayout())
 		{
 			@Override
 			public Dimension getPreferredSize()
@@ -106,49 +110,20 @@ public class DeathTracePanel extends PluginPanel
 				return d;
 			}
 		};
-		deathListContainer.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		recordingsListContainer.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
-		noDeathsLabel = new JLabel("No deaths recorded yet");
-		noDeathsLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		noDeathsLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-		noDeathsLabel.setBorder(new EmptyBorder(20, 10, 20, 10));
+		noRecordingsLabel = new JLabel("No recordings yet");
+		noRecordingsLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		noRecordingsLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+		noRecordingsLabel.setBorder(new EmptyBorder(20, 10, 20, 10));
 
-		JScrollPane deathsScrollPane = new JScrollPane(deathListContainer);
-		deathsScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-		deathsScrollPane.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		deathsScrollPane.getViewport().setBackground(ColorScheme.DARK_GRAY_COLOR);
-		deathsScrollPane.setBorder(null);
+		JScrollPane recordingsScrollPane = new JScrollPane(recordingsListContainer);
+		recordingsScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		recordingsScrollPane.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		recordingsScrollPane.getViewport().setBackground(ColorScheme.DARK_GRAY_COLOR);
+		recordingsScrollPane.setBorder(null);
 
-		deathsViewPanel.add(deathsScrollPane, BorderLayout.CENTER);
-
-		// Deaths footer
-		JPanel deathsFooter = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
-		deathsFooter.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		deathsFooter.setBorder(new EmptyBorder(5, 10, 10, 10));
-
-		JButton exportAllBtn = new JButton("Export All");
-		exportAllBtn.setToolTipText("Copy all deaths to clipboard as JSON");
-		exportAllBtn.addActionListener(e -> exportAllDeaths());
-		deathsFooter.add(exportAllBtn);
-
-		JButton clearBtn = new JButton("Clear All");
-		clearBtn.setToolTipText("Delete all recorded deaths");
-		clearBtn.addActionListener(e -> {
-			int result = JOptionPane.showConfirmDialog(
-				this,
-				"Are you sure you want to clear all death records?",
-				"Confirm Clear",
-				JOptionPane.YES_NO_OPTION
-			);
-			if (result == JOptionPane.YES_OPTION)
-			{
-				deathStorage.clearDeaths();
-				refreshDeathsList();
-			}
-		});
-		deathsFooter.add(clearBtn);
-
-		deathsViewPanel.add(deathsFooter, BorderLayout.SOUTH);
+		recordingsViewPanel.add(recordingsScrollPane, BorderLayout.CENTER);
 
 		// === Live View ===
 		JPanel liveViewPanel = new JPanel(new BorderLayout());
@@ -176,6 +151,15 @@ public class DeathTracePanel extends PluginPanel
 		liveExportBtn.setToolTipText("Copy current tick buffer to clipboard");
 		liveExportBtn.addActionListener(e -> exportLiveBuffer());
 		liveButtonsPanel.add(liveExportBtn);
+
+		liveSaveBtn = new JButton("★ Save");
+		liveSaveBtn.setMargin(new Insets(2, 6, 2, 6));
+		liveSaveBtn.setToolTipText("Save current tick buffer as a recording");
+		liveSaveBtn.setBackground(new Color(50, 80, 50));
+		liveSaveBtn.setForeground(new Color(150, 200, 150));
+		liveSaveBtn.setEnabled(false);
+		liveSaveBtn.addActionListener(e -> saveLiveBuffer());
+		liveButtonsPanel.add(liveSaveBtn);
 
 		liveHeader.add(liveButtonsPanel);
 
@@ -214,17 +198,17 @@ public class DeathTracePanel extends PluginPanel
 		liveViewPanel.add(liveScrollPane, BorderLayout.CENTER);
 
 		// === Playback View ===
-		playbackPanel = new PlaybackPanel(this::returnFromPlayback);
+		playbackPanel = new PlaybackPanel(this::returnFromPlayback, spriteManager);
 
 		// Add views to card layout
-		contentPanel.add(deathsViewPanel, DEATHS_VIEW);
+		contentPanel.add(recordingsViewPanel, RECORDINGS_VIEW);
 		contentPanel.add(liveViewPanel, LIVE_VIEW);
 		contentPanel.add(playbackPanel, PLAYBACK_VIEW);
 
 		add(contentPanel, BorderLayout.CENTER);
 
 		// Initial refresh
-		refreshDeathsList();
+		refreshRecordingsList();
 	}
 
 	/**
@@ -236,26 +220,26 @@ public class DeathTracePanel extends PluginPanel
 	}
 
 	/**
-	 * Toggle between deaths view and live view.
+	 * Toggle between recordings view and live view.
 	 */
 	private void toggleView()
 	{
-		if (currentView.equals(DEATHS_VIEW))
+		if (currentView.equals(RECORDINGS_VIEW))
 		{
 			currentView = LIVE_VIEW;
-			toggleViewBtn.setText("Deaths");
-			toggleViewBtn.setToolTipText("Switch to deaths list view");
+			toggleViewBtn.setText("Recordings");
+			toggleViewBtn.setToolTipText("Switch to recordings list view");
 			cardLayout.show(contentPanel, LIVE_VIEW);
 			refreshLiveTimeline();
 		}
 		else if (currentView.equals(LIVE_VIEW))
 		{
-			currentView = DEATHS_VIEW;
+			currentView = RECORDINGS_VIEW;
 			toggleViewBtn.setText("Live View");
 			toggleViewBtn.setToolTipText("Switch to live timeline view");
-			cardLayout.show(contentPanel, DEATHS_VIEW);
+			cardLayout.show(contentPanel, RECORDINGS_VIEW);
 		}
-		// If in playback view, toggle goes to deaths view
+		// If in playback view, toggle goes to recordings view
 		else if (currentView.equals(PLAYBACK_VIEW))
 		{
 			returnFromPlayback();
@@ -263,15 +247,15 @@ public class DeathTracePanel extends PluginPanel
 	}
 
 	/**
-	 * Show the playback view for a death record.
+	 * Show the playback view for a recording.
 	 */
-	private void showPlayback(DeathRecord death)
+	private void showPlayback(TickRecording recording)
 	{
 		previousView = currentView;
 		currentView = PLAYBACK_VIEW;
-		toggleViewBtn.setText("Deaths");
-		toggleViewBtn.setToolTipText("Return to deaths list");
-		playbackPanel.loadDeath(death);
+		toggleViewBtn.setText("Recordings");
+		toggleViewBtn.setToolTipText("Return to recordings list");
+		playbackPanel.loadRecording(recording);
 		cardLayout.show(contentPanel, PLAYBACK_VIEW);
 	}
 
@@ -280,10 +264,10 @@ public class DeathTracePanel extends PluginPanel
 	 */
 	private void returnFromPlayback()
 	{
-		currentView = DEATHS_VIEW; // Always return to deaths view
+		currentView = RECORDINGS_VIEW; // Always return to recordings view
 		toggleViewBtn.setText("Live View");
 		toggleViewBtn.setToolTipText("Switch to live timeline view");
-		cardLayout.show(contentPanel, DEATHS_VIEW);
+		cardLayout.show(contentPanel, RECORDINGS_VIEW);
 	}
 
 	/**
@@ -297,6 +281,8 @@ public class DeathTracePanel extends PluginPanel
 			liveStartStopBtn.setText("Pause");
 			liveStatusLabel.setText("Recording: Active");
 			liveStatusLabel.setForeground(new Color(80, 200, 80));
+			liveSaveBtn.setEnabled(false);
+			pausedSnapshot = null;
 			refreshLiveTimeline();
 		}
 		else
@@ -304,6 +290,15 @@ public class DeathTracePanel extends PluginPanel
 			liveStartStopBtn.setText("Resume");
 			liveStatusLabel.setText("Recording: Paused");
 			liveStatusLabel.setForeground(new Color(255, 180, 80));
+			if (tickRecorder != null)
+			{
+				pausedSnapshot = new ArrayList<>(tickRecorder.getTickHistory());
+			}
+			else
+			{
+				pausedSnapshot = Collections.emptyList();
+			}
+			liveSaveBtn.setEnabled(!pausedSnapshot.isEmpty());
 		}
 	}
 
@@ -312,7 +307,7 @@ public class DeathTracePanel extends PluginPanel
 	 */
 	public void refresh()
 	{
-		refreshDeathsList();
+		refreshRecordingsList();
 	}
 
 	/**
@@ -327,13 +322,14 @@ public class DeathTracePanel extends PluginPanel
 	}
 
 	/**
-	 * Refresh the deaths list view.
+	 * Refresh the recordings list view (deaths + saved).
 	 */
-	private void refreshDeathsList()
+	private void refreshRecordingsList()
 	{
-		deathListContainer.removeAll();
+		recordingsListContainer.removeAll();
 
-		List<DeathRecord> deaths = deathStorage.getDeaths();
+		List<TickRecording> deaths = recordingStorage.getDeaths();
+		List<TickRecording> saved = recordingStorage.getSavedRecordings();
 
 		GridBagConstraints gbc = new GridBagConstraints();
 		gbc.gridx = 0;
@@ -343,27 +339,93 @@ public class DeathTracePanel extends PluginPanel
 		gbc.anchor = GridBagConstraints.NORTH;
 		gbc.insets = new Insets(3, 0, 3, 0);
 
-		if (deaths.isEmpty())
+		boolean hasContent = false;
+
+		// === Saved Recordings Section ===
+		if (!saved.isEmpty())
 		{
-			gbc.weighty = 1.0;
-			deathListContainer.add(noDeathsLabel, gbc);
-		}
-		else
-		{
-			for (int i = 0; i < deaths.size(); i++)
+			hasContent = true;
+			JPanel savedHeader = createSectionHeader("★ Saved Recordings (" + saved.size() + ")", new Color(80, 150, 80));
+			recordingsListContainer.add(savedHeader, gbc);
+			gbc.gridy++;
+
+			for (int i = 0; i < saved.size(); i++)
 			{
-				DeathRecord death = deaths.get(i);
-				DeathEntryPanel entryPanel = new DeathEntryPanel(death, i + 1, this::exportDeath, this::deleteDeath, this::showPlayback, spriteManager);
-				deathListContainer.add(entryPanel, gbc);
+				TickRecording recording = saved.get(i);
+				RecordingEntryPanel entryPanel = new RecordingEntryPanel(
+					recording, i + 1,
+					this::exportRecording,
+					this::deleteSavedRecording,
+					this::showPlayback,
+					null, // No save callback for already-saved items
+					spriteManager,
+					true  // isSaved = true
+				);
+				recordingsListContainer.add(entryPanel, gbc);
 				gbc.gridy++;
 			}
 
-			gbc.weighty = 1.0;
-			deathListContainer.add(Box.createVerticalGlue(), gbc);
+			// Add spacing between sections
+			recordingsListContainer.add(Box.createVerticalStrut(10), gbc);
+			gbc.gridy++;
 		}
 
-		deathListContainer.revalidate();
-		deathListContainer.repaint();
+		// === Recent Deaths Section ===
+		if (!deaths.isEmpty())
+		{
+			hasContent = true;
+			JPanel deathsHeader = createSectionHeader("☠ Recent Deaths (" + deaths.size() + ")", new Color(180, 80, 80));
+			recordingsListContainer.add(deathsHeader, gbc);
+			gbc.gridy++;
+
+			for (int i = 0; i < deaths.size(); i++)
+			{
+				TickRecording death = deaths.get(i);
+				RecordingEntryPanel entryPanel = new RecordingEntryPanel(
+					death, i + 1,
+					this::exportRecording,
+					this::deleteDeath,
+					this::showPlayback,
+					this::saveRecording,  // Save callback to move to saved
+					spriteManager,
+					false  // isSaved = false
+				);
+				recordingsListContainer.add(entryPanel, gbc);
+				gbc.gridy++;
+			}
+		}
+
+		// Empty state
+		if (!hasContent)
+		{
+			gbc.weighty = 1.0;
+			recordingsListContainer.add(noRecordingsLabel, gbc);
+		}
+		else
+		{
+			gbc.weighty = 1.0;
+			recordingsListContainer.add(Box.createVerticalGlue(), gbc);
+		}
+
+		recordingsListContainer.revalidate();
+		recordingsListContainer.repaint();
+	}
+
+	/**
+	 * Create a section header label.
+	 */
+	private JPanel createSectionHeader(String text, Color color)
+	{
+		JPanel header = new JPanel(new BorderLayout());
+		header.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		header.setBorder(new EmptyBorder(6, 10, 6, 10));
+
+		JLabel label = new JLabel(text);
+		label.setForeground(color);
+		label.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 13));
+		header.add(label, BorderLayout.WEST);
+
+		return header;
 	}
 
 	/**
@@ -423,24 +485,24 @@ public class DeathTracePanel extends PluginPanel
 	}
 
 	/**
-	 * Export a single death to clipboard.
+	 * Export a recording to clipboard.
 	 */
-	private void exportDeath(DeathRecord death)
+	private void exportRecording(TickRecording recording)
 	{
-		String json = deathStorage.exportDeathAsJson(death);
+		String json = recordingStorage.exportRecordingAsJson(recording);
 		copyToClipboard(json);
 		JOptionPane.showMessageDialog(
 			this,
-			"Death exported to clipboard!",
+			"Recording exported to clipboard!",
 			"Export Successful",
 			JOptionPane.INFORMATION_MESSAGE
 		);
 	}
 
 	/**
-	 * Delete a single death record.
+	 * Delete a death record.
 	 */
-	private void deleteDeath(DeathRecord death)
+	private void deleteDeath(TickRecording death)
 	{
 		int result = JOptionPane.showConfirmDialog(
 			this,
@@ -450,35 +512,42 @@ public class DeathTracePanel extends PluginPanel
 		);
 		if (result == JOptionPane.YES_OPTION)
 		{
-			deathStorage.deleteDeath(death);
-			refreshDeathsList();
+			recordingStorage.deleteDeath(death);
+			refreshRecordingsList();
 		}
 	}
 
 	/**
-	 * Export all deaths to clipboard.
+	 * Save a recording to the saved recordings list.
 	 */
-	private void exportAllDeaths()
+	private void saveRecording(TickRecording recording)
 	{
-		if (deathStorage.getDeathCount() == 0)
-		{
-			JOptionPane.showMessageDialog(
-				this,
-				"No deaths to export!",
-				"Export",
-				JOptionPane.WARNING_MESSAGE
-			);
-			return;
-		}
-
-		String json = deathStorage.exportAllAsJson();
-		copyToClipboard(json);
+		recordingStorage.saveRecording(recording);
+		refreshRecordingsList();
 		JOptionPane.showMessageDialog(
 			this,
-			"All deaths exported to clipboard!",
-			"Export Successful",
+			"Recording saved! It will no longer auto-delete.",
+			"Saved",
 			JOptionPane.INFORMATION_MESSAGE
 		);
+	}
+
+	/**
+	 * Delete a saved recording.
+	 */
+	private void deleteSavedRecording(TickRecording recording)
+	{
+		int result = JOptionPane.showConfirmDialog(
+			this,
+			"Delete this saved recording?",
+			"Confirm Delete",
+			JOptionPane.YES_NO_OPTION
+		);
+		if (result == JOptionPane.YES_OPTION)
+		{
+			recordingStorage.deleteSavedRecording(recording);
+			refreshRecordingsList();
+		}
 	}
 
 	/**
@@ -506,6 +575,63 @@ public class DeathTracePanel extends PluginPanel
 			"Export Successful",
 			JOptionPane.INFORMATION_MESSAGE
 		);
+	}
+
+	/**
+	 * Save current live buffer as a recording.
+	 */
+	private void saveLiveBuffer()
+	{
+		if (pausedSnapshot == null || pausedSnapshot.isEmpty())
+		{
+			JOptionPane.showMessageDialog(
+				this,
+				"Pause live view to capture ticks before saving.",
+				"Save",
+				JOptionPane.WARNING_MESSAGE
+			);
+			return;
+		}
+
+		String name = JOptionPane.showInputDialog(
+			this,
+			"Enter a name for this recording:",
+			"Save Recording",
+			JOptionPane.QUESTION_MESSAGE
+		);
+
+		if (name == null || name.trim().isEmpty())
+		{
+			return; // Cancelled
+		}
+
+		List<TickData> ticks = new ArrayList<>(pausedSnapshot);
+		int totalDamage = TickRecording.calculateTotalDamage(ticks);
+
+		TickRecording recording = TickRecording.builder()
+			.timestamp(System.currentTimeMillis())
+			.killerName(name.trim())
+			.location("Live Snapshot")
+			.ticks(ticks)
+			.finalHp(ticks.isEmpty() ? 0 : ticks.get(ticks.size() - 1).getCurrentHp())
+			.totalDamageReceived(totalDamage)
+			.build();
+
+		recordingStorage.addSavedRecording(recording);
+		refreshRecordingsList();
+
+		JOptionPane.showMessageDialog(
+			this,
+			"Recording saved! (" + ticks.size() + " ticks)",
+			"Save Successful",
+			JOptionPane.INFORMATION_MESSAGE
+		);
+
+		// Switch to recordings view
+		if (currentView.equals(LIVE_VIEW))
+		{
+			toggleView();
+		}
 	}
 
 	/**

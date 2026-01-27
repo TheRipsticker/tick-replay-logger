@@ -14,7 +14,7 @@ repositories {
 }
 
 def runeLiteVersion = 'latest.release'
-def pluginMainClass = 'com.deathtrace.DeathTracePluginTest'
+def pluginMainClass = 'com.tickreplaylogger.TickReplayLoggerPluginTest'
 
 dependencies {
 	compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
@@ -27,7 +27,7 @@ dependencies {
 	testImplementation group: 'net.runelite', name:'jshell', version: runeLiteVersion
 }
 
-group = 'com.deathtrace'
+group = 'com.tickreplaylogger'
 version = '1.0-SNAPSHOT'
 
 tasks.withType(JavaCompile).configureEach {

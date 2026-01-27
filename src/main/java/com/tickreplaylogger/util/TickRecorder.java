@@ -1,9 +1,9 @@
-package com.deathtrace.util;
+package com.tickreplaylogger.util;
 
-import com.deathtrace.model.DamageEvent;
-import com.deathtrace.model.MovementData;
-import com.deathtrace.model.PlayerAction;
-import com.deathtrace.model.TickData;
+import com.tickreplaylogger.model.DamageEvent;
+import com.tickreplaylogger.model.MovementData;
+import com.tickreplaylogger.model.PlayerAction;
+import com.tickreplaylogger.model.TickData;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;

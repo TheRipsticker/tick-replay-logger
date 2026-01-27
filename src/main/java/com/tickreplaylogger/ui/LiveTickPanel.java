@@ -1,9 +1,9 @@
-package com.deathtrace.ui;
+package com.tickreplaylogger.ui;
 
-import com.deathtrace.model.DamageEvent;
-import com.deathtrace.model.MovementData;
-import com.deathtrace.model.PlayerAction;
-import com.deathtrace.model.TickData;
+import com.tickreplaylogger.model.DamageEvent;
+import com.tickreplaylogger.model.MovementData;
+import com.tickreplaylogger.model.PlayerAction;
+import com.tickreplaylogger.model.TickData;
 import net.runelite.api.SpriteID;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.ui.ColorScheme;

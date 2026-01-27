@@ -1,38 +1,38 @@
-package com.deathtrace.model;
+package com.tickreplaylogger.model;
 
 import lombok.Builder;
 import lombok.Data;
 import java.util.List;
 
 /**
- * Represents a complete death record - the snapshot of ticks leading up to death.
+ * Represents a complete tick recording - a snapshot of ticks (e.g., leading up to death or saved manually).
  */
 @Data
 @Builder
-public class DeathRecord
+public class TickRecording
 {
-	// When the death occurred
+	// When the recording was created
 	private final long timestamp;
 
-	// What killed the player
+	// Context label (e.g., killer name for deaths, or custom label for saved recordings)
 	private final String killerName;
 
-	// Where the death occurred (region/location name if available)
+	// Where the recording was made (region/location name if available)
 	private final String location;
 
-	// The tick data leading up to death (in chronological order, oldest first)
+	// The tick data (in chronological order, oldest first)
 	private final List<TickData> ticks;
 
-	// Final HP (should be 0)
+	// Final HP (0 for deaths, current HP for live snapshots)
 	private final int finalHp;
 
 	// Total damage received in the recorded ticks
 	private final int totalDamageReceived;
 
 	/**
-	 * Get human-readable time since death (e.g., "3 minutes ago")
+	 * Get human-readable time since recording (e.g., "3 minutes ago")
 	 */
-	public String getTimeSinceDeath()
+	public String getTimeSinceRecording()
 	{
 		long now = System.currentTimeMillis();
 		long diff = now - timestamp;
@@ -56,11 +56,11 @@ public class DeathRecord
 	}
 
 	/**
-	 * Get a summary string for display in the death list
+	 * Get a summary string for display in the recording list
 	 */
 	public String getSummary()
 	{
-		return killerName + " - " + getTimeSinceDeath();
+		return killerName + " - " + getTimeSinceRecording();
 	}
 
 	/**
