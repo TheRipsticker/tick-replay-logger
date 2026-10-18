@@ -53,6 +53,8 @@ Tick Replay Logger is a RuneLite Plugin Hub submission that records the last few
 | Ticks to Record | 100 | Number of ticks to keep in memory before death |
 | Max Deaths to Store | 3 | Maximum number of death records to persist (saved recordings are unlimited) |
 | Enable Live View | Enabled | Allow the optional live tick journal (disable for strict post-death review) |
+| Save Snapshot Hotkey | Not set | Press to save the current tick buffer as its own snapshot file |
+| Chat Confirmation | Enabled | Show a game chat message when a hotkey snapshot is saved |
 
 ## Usage
 
@@ -64,6 +66,7 @@ Tick Replay Logger is a RuneLite Plugin Hub submission that records the last few
 6. Use **Live View** to monitor the most recent tick, then pause before exporting or saving
 7. Click the [Save] button next to a death entry to keep it permanently
 8. While Live View is paused, click **Save Snapshot** to archive exactly what you were viewing
+9. Bind **Save Snapshot Hotkey** in the plugin settings to save the last N ticks at any time without opening the panel
 
 ### Playback Controls
 
@@ -99,6 +102,7 @@ Tick Replay Logger is a RuneLite Plugin Hub submission that records the last few
 Data is stored in the RuneLite directory:
 - `~/.runelite/tick-replay-logger/deaths.json` - Recent deaths (auto-pruned)
 - `~/.runelite/tick-replay-logger/saved.json` - Saved recordings (permanent)
+- `~/.runelite/tick-replay-logger/snapshots/` - Hotkey snapshots, one timestamped JSON file each (permanent)
 
 ## Installation (Plugin Hub)
 

@@ -28,7 +28,11 @@ import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.VarPlayer;
+import net.runelite.api.ChatMessageType;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.input.KeyManager;
+import net.runelite.client.util.HotkeyListener;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.SpriteManager;
@@ -40,7 +44,10 @@ import net.runelite.client.util.ImageUtil;
 import com.google.gson.Gson;
 
 import javax.inject.Inject;
+import javax.swing.SwingUtilities;
 import java.awt.image.BufferedImage;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -69,6 +76,26 @@ public class TickReplayLoggerPlugin extends Plugin
 
 	@Inject
 	private Gson gson;
+
+	@Inject
+	private KeyManager keyManager;
+
+	@Inject
+	private ClientThread clientThread;
+
+	private static final DateTimeFormatter SNAPSHOT_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+	// Hotkey: save the current tick buffer as a saved recording
+	private final HotkeyListener snapshotHotkeyListener = new HotkeyListener(() -> config.snapshotHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			// Key events arrive on the AWT thread; read the tick buffer on the client thread
+			// so it can't change mid-copy during a game tick.
+			clientThread.invoke(TickReplayLoggerPlugin.this::saveSnapshotFromHotkey);
+		}
+	};
 
 	private TickRecorder tickRecorder;
 	private RecordingStorage recordingStorage;
@@ -151,6 +178,7 @@ public class TickReplayLoggerPlugin extends Plugin
 			.build();
 
 		clientToolbar.addNavigation(navButton);
+		keyManager.registerKeyListener(snapshotHotkeyListener);
 
 		log.debug("Tick Replay Logger plugin started! Recording last {} ticks, storing {} deaths.",
 			config.ticksToRecord(), config.maxDeathsToStore());
@@ -159,6 +187,7 @@ public class TickReplayLoggerPlugin extends Plugin
 	@Override
 	protected void shutDown() throws Exception
 	{
+		keyManager.unregisterKeyListener(snapshotHotkeyListener);
 		clientToolbar.removeNavigation(navButton);
 
 		if (tickRecorder != null)
@@ -935,6 +964,62 @@ public class TickReplayLoggerPlugin extends Plugin
 
 		// No self-damage
 		return 0;
+	}
+
+	/**
+	 * Save the current tick buffer as a saved recording (triggered by the snapshot hotkey).
+	 * Must run on the client thread.
+	 */
+	private void saveSnapshotFromHotkey()
+	{
+		if (tickRecorder == null || recordingStorage == null)
+		{
+			return;
+		}
+
+		List<TickData> ticks = tickRecorder.getTickHistory();
+		if (ticks.isEmpty())
+		{
+			sendSnapshotChatMessage("Tick Replay Logger: no ticks recorded yet.");
+			return;
+		}
+
+		String name = "Hotkey Snapshot - " + LocalDateTime.now().format(SNAPSHOT_FORMAT);
+
+		TickRecording recording = TickRecording.builder()
+			.timestamp(System.currentTimeMillis())
+			.killerName(name)
+			.location("Hotkey Snapshot")
+			.ticks(new ArrayList<>(ticks))
+			.finalHp(ticks.get(ticks.size() - 1).getCurrentHp())
+			.totalDamageReceived(TickRecording.calculateTotalDamage(ticks))
+			.build();
+
+		final int tickCount = ticks.size();
+
+		// File write and panel update happen on the Swing thread, same as the panel's Save button.
+		// Chat messages must go back through the client thread.
+		SwingUtilities.invokeLater(() ->
+		{
+			java.io.File file = recordingStorage.addSnapshotFile(recording);
+			if (panel != null)
+			{
+				panel.refresh();
+			}
+
+			final String message = file != null
+				? "Tick Replay Logger: saved " + tickCount + " ticks to " + file.getName()
+				: "Tick Replay Logger: snapshot save FAILED (check the RuneLite log).";
+			clientThread.invokeLater(() -> sendSnapshotChatMessage(message));
+		});
+	}
+
+	private void sendSnapshotChatMessage(String message)
+	{
+		if (config.snapshotChatMessage() && client.getGameState() == GameState.LOGGED_IN)
+		{
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, null);
+		}
 	}
 
 	/**

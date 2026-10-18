@@ -10,14 +10,29 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Reader;
+import java.io.Writer;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Handles persistence of tick recordings to JSON files.
  * Deaths are stored in ~/.runelite/tick-replay-logger/deaths.json
  * Saved recordings are stored in ~/.runelite/tick-replay-logger/saved.json
+ * Hotkey snapshots are stored one per file in ~/.runelite/tick-replay-logger/snapshots/
  */
 @Slf4j
 public class RecordingStorage
@@ -25,6 +40,16 @@ public class RecordingStorage
 	private static final String FOLDER_NAME = "tick-replay-logger";
 	private static final String DEATHS_FILE_NAME = "deaths.json";
 	private static final String SAVED_FILE_NAME = "saved.json";
+	private static final String SNAPSHOTS_FOLDER_NAME = "snapshots";
+	private static final String SNAPSHOT_FILE_PREFIX = "hotkey-snapshot_";
+	private static final DateTimeFormatter SNAPSHOT_FILE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
+
+	private final File snapshotsFolder;
+
+	// Recordings that live in their own file (hotkey snapshots) -> that file.
+	// Identity map on purpose: TickRecording uses Lombok @Data, so equals/hashCode
+	// are value-based and change when a recording is renamed.
+	private final Map<TickRecording, File> snapshotFiles = new IdentityHashMap<>();
 
 	private final Gson gson;
 	private final File deathsFile;
@@ -50,12 +75,161 @@ public class RecordingStorage
 
 		this.deathsFile = new File(folder, DEATHS_FILE_NAME);
 		this.savedFile = new File(folder, SAVED_FILE_NAME);
+		this.snapshotsFolder = new File(folder, SNAPSHOTS_FOLDER_NAME);
 		this.deaths = new ArrayList<>();
 		this.savedRecordings = new ArrayList<>();
 
 		// Load existing data
 		loadDeaths();
 		loadSavedRecordings();
+		loadSnapshotFiles();
+	}
+
+	/**
+	 * Load every hotkey snapshot file from the snapshots folder and merge them
+	 * into the saved recordings list (newest first).
+	 */
+	private void loadSnapshotFiles()
+	{
+		snapshotFiles.clear();
+
+		File[] files = snapshotsFolder.listFiles((dir, name) -> name.toLowerCase().endsWith(".json"));
+		if (files == null || files.length == 0)
+		{
+			return;
+		}
+
+		int loadedCount = 0;
+		for (File file : files)
+		{
+			try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8))
+			{
+				TickRecording recording = gson.fromJson(reader, TickRecording.class);
+				if (recording != null && recording.getTicks() != null)
+				{
+					savedRecordings.add(recording);
+					snapshotFiles.put(recording, file);
+					loadedCount++;
+				}
+			}
+			catch (Exception e)
+			{
+				// Leave unreadable files alone on disk; never overwrite or delete them here
+				log.warn("Skipping unreadable snapshot file {}", file.getName(), e);
+			}
+		}
+
+		savedRecordings.sort(Comparator.comparingLong(TickRecording::getTimestamp).reversed());
+		log.debug("Loaded {} hotkey snapshot files", loadedCount);
+	}
+
+	/**
+	 * Save a recording to its own timestamped file in the snapshots folder
+	 * and add it to the saved recordings list. Used by the snapshot hotkey.
+	 *
+	 * @return the file written, or null if the write failed
+	 */
+	public File addSnapshotFile(TickRecording recording)
+	{
+		if (!snapshotsFolder.exists() && !snapshotsFolder.mkdirs())
+		{
+			log.error("Could not create snapshots folder {}", snapshotsFolder);
+			return null;
+		}
+
+		String stamp = LocalDateTime.ofInstant(Instant.ofEpochMilli(recording.getTimestamp()), ZoneId.systemDefault())
+			.format(SNAPSHOT_FILE_FORMAT);
+
+		// Avoid collisions if the hotkey is pressed twice in the same second
+		File file = new File(snapshotsFolder, SNAPSHOT_FILE_PREFIX + stamp + ".json");
+		int suffix = 2;
+		while (file.exists())
+		{
+			file = new File(snapshotsFolder, SNAPSHOT_FILE_PREFIX + stamp + "_" + suffix + ".json");
+			suffix++;
+		}
+
+		if (!writeSnapshotFile(recording, file))
+		{
+			return null;
+		}
+
+		savedRecordings.add(0, recording);
+		snapshotFiles.put(recording, file);
+		log.debug("Hotkey snapshot written to {}", file.getAbsolutePath());
+		return file;
+	}
+
+	/**
+	 * Write one recording to a file. Writes to a temp file first, then moves it into
+	 * place, so a crash mid-write can't leave a half-written snapshot.
+	 */
+	private boolean writeSnapshotFile(TickRecording recording, File target)
+	{
+		Path targetPath = target.toPath();
+		Path tempPath = targetPath.resolveSibling(target.getName() + ".tmp");
+
+		try
+		{
+			try (Writer writer = Files.newBufferedWriter(tempPath, StandardCharsets.UTF_8))
+			{
+				gson.toJson(recording, writer);
+			}
+
+			try
+			{
+				Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+			}
+			catch (AtomicMoveNotSupportedException e)
+			{
+				Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+			}
+			return true;
+		}
+		catch (IOException e)
+		{
+			log.error("Failed to write snapshot file {}", target.getName(), e);
+			try
+			{
+				Files.deleteIfExists(tempPath);
+			}
+			catch (IOException ignored)
+			{
+			}
+			return false;
+		}
+	}
+
+	/**
+	 * Saved recordings that belong in saved.json (everything except per-file hotkey snapshots).
+	 */
+	private List<TickRecording> getSavedJsonRecordings()
+	{
+		List<TickRecording> result = new ArrayList<>();
+		for (TickRecording recording : savedRecordings)
+		{
+			if (!snapshotFiles.containsKey(recording))
+			{
+				result.add(recording);
+			}
+		}
+		return result;
+	}
+
+	/**
+	 * Remove a recording from the saved list by identity (not equals()).
+	 */
+	private boolean removeSavedByIdentity(TickRecording recording)
+	{
+		for (int i = 0; i < savedRecordings.size(); i++)
+		{
+			if (savedRecordings.get(i) == recording)
+			{
+				savedRecordings.remove(i);
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -159,8 +333,9 @@ public class RecordingStorage
 	{
 		try (FileWriter writer = new FileWriter(savedFile))
 		{
-			gson.toJson(savedRecordings, writer);
-			log.debug("Saved {} saved recordings to file", savedRecordings.size());
+			List<TickRecording> toWrite = getSavedJsonRecordings();
+			gson.toJson(toWrite, writer);
+			log.debug("Saved {} saved recordings to file", toWrite.size());
 		}
 		catch (IOException e)
 		{
@@ -360,8 +535,18 @@ public class RecordingStorage
 		}
 
 		recording.setKillerName(trimmed);
-		saveDeaths();
-		saveSavedRecordings();
+
+		File snapshotFile = snapshotFiles.get(recording);
+		if (snapshotFile != null)
+		{
+			// Hotkey snapshot: rewrite its own file (filename keeps the original timestamp)
+			writeSnapshotFile(recording, snapshotFile);
+		}
+		else
+		{
+			saveDeaths();
+			saveSavedRecordings();
+		}
 		log.debug("Recording renamed to {}", trimmed);
 	}
 
@@ -370,21 +555,36 @@ public class RecordingStorage
 	 */
 	public void deleteSavedRecording(TickRecording recording)
 	{
-		if (savedRecordings.remove(recording))
+		if (!removeSavedByIdentity(recording))
+		{
+			return;
+		}
+
+		File snapshotFile = snapshotFiles.remove(recording);
+		if (snapshotFile != null)
+		{
+			// Hotkey snapshot: delete its file so it doesn't come back on next launch
+			if (!snapshotFile.delete() && snapshotFile.exists())
+			{
+				log.warn("Could not delete snapshot file {}", snapshotFile.getName());
+			}
+		}
+		else
 		{
 			saveSavedRecordings();
-			log.debug("Saved recording deleted: {}", recording.getKillerName());
 		}
+		log.debug("Saved recording deleted: {}", recording.getKillerName());
 	}
 
 	/**
-	 * Clear all saved recordings
+	 * Clear all saved recordings in saved.json.
+	 * Hotkey snapshot files are left on disk and stay in the list.
 	 */
 	public void clearSavedRecordings()
 	{
-		savedRecordings.clear();
+		savedRecordings.removeIf(r -> !snapshotFiles.containsKey(r));
 		saveSavedRecordings();
-		log.debug("All saved recordings cleared");
+		log.debug("All saved.json recordings cleared");
 	}
 
 	/**

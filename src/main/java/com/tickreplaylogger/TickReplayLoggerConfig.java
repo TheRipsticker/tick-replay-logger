@@ -4,6 +4,7 @@ import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.Keybind;
 
 @ConfigGroup("tickreplaylogger")
 public interface TickReplayLoggerConfig extends Config
@@ -21,6 +22,37 @@ public interface TickReplayLoggerConfig extends Config
 		position = 1
 	)
 	String trackingSection = "tracking";
+
+	@ConfigSection(
+		name = "Hotkeys",
+		description = "Keyboard shortcuts",
+		position = 2
+	)
+	String hotkeySection = "hotkeys";
+
+	@ConfigItem(
+		keyName = "snapshotHotkey",
+		name = "Save Snapshot Hotkey",
+		description = "Press to save the current tick buffer as a saved recording",
+		position = 0,
+		section = hotkeySection
+	)
+	default Keybind snapshotHotkey()
+	{
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = "snapshotChatMessage",
+		name = "Chat Confirmation",
+		description = "Show a game chat message when a hotkey snapshot is saved",
+		position = 1,
+		section = hotkeySection
+	)
+	default boolean snapshotChatMessage()
+	{
+		return true;
+	}
 
 	@ConfigItem(
 		keyName = "ticksToRecord",
